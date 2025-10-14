@@ -21,6 +21,24 @@ class ThinkingProxy {
     private let targetPort: UInt16 = 8318
     private let targetHost = "127.0.0.1"
     private(set) var isRunning = false
+    private let logFileURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".vibeproxy-debug.log")
+    
+    private func log(_ message: String) {
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let logLine = "\(timestamp) \(message)\n"
+        if let data = logLine.data(using: .utf8) {
+            if FileManager.default.fileExists(atPath: logFileURL.path) {
+                if let fileHandle = try? FileHandle(forWritingTo: logFileURL) {
+                    fileHandle.seekToEndOfFile()
+                    fileHandle.write(data)
+                    fileHandle.closeFile()
+                }
+            } else {
+                try? data.write(to: logFileURL)
+            }
+        }
+        NSLog("[ThinkingProxy] %@", message)
+    }
     
     /**
      Starts the thinking proxy server on port 8317
@@ -185,7 +203,7 @@ class ThinkingProxy {
         let path = parts[1]
         let httpVersion = parts[2]
         
-        NSLog("[ThinkingProxy] Request: %@ %@", method, path)
+        self.log("Request: \(method) \(path)")
 
         // Collect headers while preserving original casing
         var headers: [(String, String)] = []
@@ -408,11 +426,11 @@ class ThinkingProxy {
                     if let headerEndRange = responseString.range(of: "\r\n\r\n") {
                         let headerEndIndex = responseString.distance(from: responseString.startIndex, to: headerEndRange.upperBound)
                         let headers = String(responseString.prefix(headerEndIndex))
-                        NSLog("[ThinkingProxy] Response headers: %@", headers)
+                        self.log("Response headers:\n\(headers)")
                         
                         let bodyStart = responseString.index(responseString.startIndex, offsetBy: headerEndIndex)
                         let bodyPreview = String(responseString[bodyStart...].prefix(500))
-                        NSLog("[ThinkingProxy] Response body preview: %@", bodyPreview)
+                        self.log("Response body preview:\n\(bodyPreview)")
                         newHeadersLogged = true
                     }
                 }
