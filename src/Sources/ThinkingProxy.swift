@@ -325,7 +325,7 @@ class ThinkingProxy {
             case .ready:
                 // Build the forwarded request
                 var forwardedRequest = "\(method) \(path) \(version)\r\n"
-                let excludedHeaders: Set<String> = ["content-length", "host", "transfer-encoding"]
+                let excludedHeaders: Set<String> = ["content-length", "host", "transfer-encoding", "accept-encoding"]
                 for (name, value) in headers {
                     let lowercasedName = name.lowercased()
                     if excludedHeaders.contains(lowercasedName) {
@@ -338,6 +338,8 @@ class ThinkingProxy {
                 forwardedRequest += "Host: \(self.targetHost):\(self.targetPort)\r\n"
                 // Always close connections - this proxy doesn't support keep-alive/pipelining
                 forwardedRequest += "Connection: close\r\n"
+                // Force uncompressed responses for SSE parsing
+                forwardedRequest += "Accept-Encoding: identity\r\n"
                 
                 let contentLength = body.utf8.count
                 forwardedRequest += "Content-Length: \(contentLength)\r\n"
