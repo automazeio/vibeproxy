@@ -154,13 +154,18 @@ jobs:
 
             ### Installation
 
-            **Option 1: ZIP (Recommended)**
+            **Option 1: Homebrew (Recommended)**
+            ```bash
+            brew install automazeio/vibeproxy/vibeproxy
+            ```
+
+            **Option 2: ZIP**
             1. Download `VibeProxy.zip`
             2. Extract the file
             3. Drag `VibeProxy.app` to your `/Applications` folder
             4. Double-click to launch
 
-            **Option 2: DMG**
+            **Option 3: DMG**
             1. Download `VibeProxy.dmg`
             2. Double-click to mount
             3. Drag `VibeProxy.app` to the Applications folder

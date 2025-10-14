@@ -45,7 +45,15 @@ Built on [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI), it handles
 
 **⚠️ Requirements:** macOS running on **Apple Silicon only** (M1/M2/M3/M4 Macs). Intel Macs are not supported.
 
-### Download Pre-built Release (Recommended)
+### Homebrew (Recommended)
+
+```bash
+brew install automazeio/vibeproxy/vibeproxy
+```
+
+That's it! Launch VibeProxy from your Applications folder or Spotlight.
+
+### Download Pre-built Release
 
 1. Go to the [**Releases**](https://github.com/automazeio/vibeproxy/releases) page
 2. Download the latest `VibeProxy.zip`
