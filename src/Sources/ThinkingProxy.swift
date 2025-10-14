@@ -385,7 +385,7 @@ class ThinkingProxy {
     /**
      Streams response chunks iteratively (uses async scheduling instead of recursion to avoid stack buildup)
      */
-    private func streamNextChunk(from targetConnection: NWConnection, to originalConnection: NWConnection, forceConnectionClose: Bool) {
+    private func streamNextChunk(from targetConnection: NWConnection, to originalConnection: NWConnection, forceConnectionClose: Bool, accumulatedData: Data = Data(), headersLogged: Bool = false) {
         targetConnection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
             guard let self = self else { return }
             
@@ -397,6 +397,24 @@ class ThinkingProxy {
             }
             
             if let data = data, !data.isEmpty {
+                var newAccumulatedData = accumulatedData
+                newAccumulatedData.append(data)
+                var newHeadersLogged = headersLogged
+                
+                // Log headers and first chunk for debugging
+                if !newHeadersLogged, let responseString = String(data: newAccumulatedData, encoding: .utf8) {
+                    if let headerEndRange = responseString.range(of: "\r\n\r\n") {
+                        let headerEndIndex = responseString.distance(from: responseString.startIndex, to: headerEndRange.upperBound)
+                        let headers = String(responseString.prefix(headerEndIndex))
+                        NSLog("[ThinkingProxy] Response headers: %@", headers)
+                        
+                        let bodyStart = responseString.index(responseString.startIndex, offsetBy: headerEndIndex)
+                        let bodyPreview = String(responseString[bodyStart...].prefix(500))
+                        NSLog("[ThinkingProxy] Response body preview: %@", bodyPreview)
+                        newHeadersLogged = true
+                    }
+                }
+                
                 // Forward response chunk to original client
                 originalConnection.send(content: data, completion: .contentProcessed({ sendError in
                     if let sendError = sendError {
@@ -411,7 +429,8 @@ class ThinkingProxy {
                         }))
                     } else {
                         // Schedule next iteration of the streaming loop
-                        self.streamNextChunk(from: targetConnection, to: originalConnection, forceConnectionClose: forceConnectionClose)
+                        self.streamNextChunk(from: targetConnection, to: originalConnection, forceConnectionClose: forceConnectionClose, 
+                                           accumulatedData: newAccumulatedData, headersLogged: newHeadersLogged)
                     }
                 }))
             } else if isComplete {
