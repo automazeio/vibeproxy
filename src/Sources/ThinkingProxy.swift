@@ -184,6 +184,8 @@ class ThinkingProxy {
         let method = parts[0]
         let path = parts[1]
         let httpVersion = parts[2]
+        
+        NSLog("[ThinkingProxy] Request: %@ %@", method, path)
 
         // Collect headers while preserving original casing
         var headers: [(String, String)] = []
