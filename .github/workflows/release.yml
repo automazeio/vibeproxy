@@ -196,3 +196,27 @@ jobs:
             VibeProxy.zip
             VibeProxy.dmg
           retention-days: 30
+
+      - name: Update Homebrew Cask
+        run: |
+          # Extract SHA256 from checksum file
+          SHA256=$(cat VibeProxy.zip.sha256 | awk '{print $1}')
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
+          
+          echo "Updating Cask with version ${VERSION} and SHA256 ${SHA256}"
+          
+          # Update the cask file
+          sed -i '' "s/version \".*\"/version \"${VERSION}\"/" Casks/vibeproxy.rb
+          sed -i '' "s/sha256 \".*\"/sha256 \"${SHA256}\"/" Casks/vibeproxy.rb
+          
+          # Show the changes
+          cat Casks/vibeproxy.rb
+
+      - name: Commit and Push Cask Update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git add Casks/vibeproxy.rb
+          git commit -m "Update Homebrew cask to v${{ steps.get_version.outputs.VERSION }}" || echo "No changes to commit"
+          git push origin HEAD:main || echo "Failed to push (may need to handle conflicts)"
