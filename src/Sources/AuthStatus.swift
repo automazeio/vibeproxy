@@ -28,6 +28,7 @@ class AuthManager: ObservableObject {
     @Published var claudeStatus = AuthStatus(isAuthenticated: false, type: "claude")
     @Published var codexStatus = AuthStatus(isAuthenticated: false, type: "codex")
     @Published var geminiStatus = AuthStatus(isAuthenticated: false, type: "gemini")
+    @Published var qwenStatus = AuthStatus(isAuthenticated: false, type: "qwen")
     
     func checkAuthStatus() {
         let authDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cli-proxy-api")
@@ -36,6 +37,7 @@ class AuthManager: ObservableObject {
         var foundClaude = false
         var foundCodex = false
         var foundGemini = false
+        var foundQwen = false
         
         // Check for auth files
         do {
@@ -79,6 +81,10 @@ class AuthManager: ObservableObject {
                             foundGemini = true
                             self.geminiStatus = status
                             NSLog("[AuthStatus] Found Gemini auth: %@", email ?? "unknown")
+                        case "qwen":
+                            foundQwen = true
+                            self.qwenStatus = status
+                            NSLog("[AuthStatus] Found Qwen auth: %@", email ?? "unknown")
                         default:
                             break
                         }
@@ -100,6 +106,10 @@ class AuthManager: ObservableObject {
                     NSLog("[AuthStatus] No Gemini auth file found - resetting status")
                     self.geminiStatus = AuthStatus(isAuthenticated: false, type: "gemini")
                 }
+                if !foundQwen {
+                    NSLog("[AuthStatus] No Qwen auth file found - resetting status")
+                    self.qwenStatus = AuthStatus(isAuthenticated: false, type: "qwen")
+                }
             }
         } catch {
             NSLog("[AuthStatus] Error checking auth status: %@", error.localizedDescription)
@@ -108,6 +118,7 @@ class AuthManager: ObservableObject {
                 self.claudeStatus = AuthStatus(isAuthenticated: false, type: "claude")
                 self.codexStatus = AuthStatus(isAuthenticated: false, type: "codex")
                 self.geminiStatus = AuthStatus(isAuthenticated: false, type: "gemini")
+                self.qwenStatus = AuthStatus(isAuthenticated: false, type: "qwen")
             }
         }
     }

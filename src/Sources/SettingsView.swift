@@ -8,10 +8,13 @@ struct SettingsView: View {
     @State private var isAuthenticatingClaude = false
     @State private var isAuthenticatingCodex = false
     @State private var isAuthenticatingGemini = false
+    @State private var isAuthenticatingQwen = false
     @State private var showingAuthResult = false
     @State private var authResultMessage = ""
     @State private var authResultSuccess = false
     @State private var fileMonitor: DispatchSourceFileSystemObject?
+    @State private var showingQwenEmailPrompt = false
+    @State private var qwenEmail = ""
     
     private enum DisconnectTiming {
         static let serverRestartDelay: TimeInterval = 0.3
@@ -195,6 +198,49 @@ struct SettingsView: View {
                     }
                 }
                 .help("⚠️ Note: If you're an existing Gemini user with multiple projects, authentication will use your default project. Set your desired project as default in Google AI Studio before connecting.")
+
+                HStack {
+                    if let nsImage = IconCatalog.shared.image(named: "icon-qwen.png", resizedTo: NSSize(width: 20, height: 20), template: true) {
+                        Image(nsImage: nsImage)
+                            .resizable()
+                            .renderingMode(.template)
+                            .frame(width: 20, height: 20)
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Qwen")
+                        if authManager.qwenStatus.isAuthenticated {
+                            Text(authManager.qwenStatus.email ?? "Connected")
+                                .font(.caption2)
+                                .foregroundColor(authManager.qwenStatus.isExpired ? .red : .green)
+                            if authManager.qwenStatus.isExpired {
+                                Text("(expired)")
+                                    .font(.caption2)
+                                    .foregroundColor(.red)
+                            }
+                        }
+                    }
+                    Spacer()
+                    if isAuthenticatingQwen {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        if authManager.qwenStatus.isAuthenticated {
+                            if authManager.qwenStatus.isExpired {
+                                Button("Reconnect") {
+                                    connectQwen()
+                                }
+                            } else {
+                                Button("Disconnect") {
+                                    disconnectQwen()
+                                }
+                            }
+                        } else {
+                            Button("Connect") {
+                                connectQwen()
+                            }
+                        }
+                    }
+                }
                 }
             }
             .formStyle(.grouped)
@@ -260,7 +306,33 @@ struct SettingsView: View {
             }
             .padding(.bottom, 12)
         }
-        .frame(width: 480, height: 440)
+        .frame(width: 480, height: 490)
+        .sheet(isPresented: $showingQwenEmailPrompt) {
+            VStack(spacing: 16) {
+                Text("Qwen Account Email")
+                    .font(.headline)
+                Text("Enter your Qwen account email address")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextField("your.email@example.com", text: $qwenEmail)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 250)
+                HStack(spacing: 12) {
+                    Button("Cancel") {
+                        showingQwenEmailPrompt = false
+                        qwenEmail = ""
+                    }
+                    Button("Continue") {
+                        showingQwenEmailPrompt = false
+                        startQwenAuth(email: qwenEmail)
+                    }
+                    .disabled(qwenEmail.isEmpty)
+                    .keyboardShortcut(.defaultAction)
+                }
+            }
+            .padding(24)
+            .frame(width: 350)
+        }
         .onAppear {
             authManager.checkAuthStatus()
             checkLaunchAtLogin()
@@ -394,6 +466,43 @@ struct SettingsView: View {
         isAuthenticatingGemini = true
         performDisconnect(for: "gemini", serviceName: "Gemini") { success, message in
             self.isAuthenticatingGemini = false
+            self.authResultSuccess = success
+            self.authResultMessage = message
+            self.showingAuthResult = true
+        }
+    }
+
+    private func connectQwen() {
+        showingQwenEmailPrompt = true
+    }
+
+    private func startQwenAuth(email: String) {
+        isAuthenticatingQwen = true
+        NSLog("[SettingsView] Starting Qwen authentication with email: %@", email)
+
+        serverManager.runAuthCommand(.qwenLogin(email: email)) { success, output in
+            NSLog("[SettingsView] Auth completed - success: %d, output: %@", success, output)
+            DispatchQueue.main.async {
+                self.isAuthenticatingQwen = false
+
+                if success {
+                    self.authResultSuccess = true
+                    self.authResultMessage = "✓ Qwen authenticated successfully!\n\nPlease complete the authentication in your browser, then the app will automatically submit your email and detect your credentials."
+                    self.showingAuthResult = true
+                    // File monitor will automatically update the status
+                } else {
+                    self.authResultSuccess = false
+                    self.authResultMessage = "Authentication failed. Please check if the browser opened and try again.\n\nDetails: \(output.isEmpty ? "No output from authentication process" : output)"
+                    self.showingAuthResult = true
+                }
+            }
+        }
+    }
+
+    private func disconnectQwen() {
+        isAuthenticatingQwen = true
+        performDisconnect(for: "qwen", serviceName: "Qwen") { success, message in
+            self.isAuthenticatingQwen = false
             self.authResultSuccess = success
             self.authResultMessage = message
             self.showingAuthResult = true
