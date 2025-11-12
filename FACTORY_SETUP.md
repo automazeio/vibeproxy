@@ -42,7 +42,7 @@ Once VibeProxy is running:
    - Follow the same browser authentication process
    - Wait for VibeProxy to confirm the connection
 
-✅ The server starts automatically and runs on port **8317**
+✅ The server starts automatically and runs on port **8318**
 
 ## Step 3: Configure Factory CLI
 
@@ -54,35 +54,35 @@ Edit your Factory configuration file at `~/.factory/config.json` (if the file do
     {
       "model_display_name": "CC: Opus 4.1",
       "model": "claude-opus-4-1-20250805",
-      "base_url": "http://localhost:8317",
+      "base_url": "http://localhost:8318",
       "api_key": "dummy-not-used",
       "provider": "anthropic"
     },
     {
       "model_display_name": "CC: Sonnet 4.5",
       "model": "claude-sonnet-4-5-20250929",
-      "base_url": "http://localhost:8317",
+      "base_url": "http://localhost:8318",
       "api_key": "dummy-not-used",
       "provider": "anthropic"
     },
     {
       "model_display_name": "CC: Sonnet 4.5 (Think)",
       "model": "claude-sonnet-4-5-20250929-thinking-4000",
-      "base_url": "http://localhost:8317",
+      "base_url": "http://localhost:8318",
       "api_key": "dummy-not-used",
       "provider": "anthropic"
     },
     {
       "model_display_name": "CC: Sonnet 4.5 (Think Harder)",
       "model": "claude-sonnet-4-5-20250929-thinking-10000",
-      "base_url": "http://localhost:8317",
+      "base_url": "http://localhost:8318",
       "api_key": "dummy-not-used",
       "provider": "anthropic"
     },
     {
       "model_display_name": "CC: Sonnet 4.5 (Ultra Think)",
       "model": "claude-sonnet-4-5-20250929-thinking-32000",
-      "base_url": "http://localhost:8317",
+      "base_url": "http://localhost:8318",
       "api_key": "dummy-not-used",
       "provider": "anthropic"
     },
@@ -90,63 +90,63 @@ Edit your Factory configuration file at `~/.factory/config.json` (if the file do
     {
       "model_display_name": "GPT-5 Codex",
       "model": "gpt-5-codex",
-      "base_url": "http://localhost:8317/v1",
+      "base_url": "http://localhost:8318/v1",
       "api_key": "dummy-not-used",
       "provider": "openai"
     },
     {
       "model_display_name": "GPT-5 Codex (Low)",
       "model": "gpt-5-codex-low",
-      "base_url": "http://localhost:8317/v1",
+      "base_url": "http://localhost:8318/v1",
       "api_key": "dummy-not-used",
       "provider": "openai"
     },
     {
       "model_display_name": "GPT-5 Codex (Medium)",
       "model": "gpt-5-codex-medium",
-      "base_url": "http://localhost:8317/v1",
+      "base_url": "http://localhost:8318/v1",
       "api_key": "dummy-not-used",
       "provider": "openai"
     },
     {
       "model_display_name": "GPT-5 Codex (High)",
       "model": "gpt-5-codex-high",
-      "base_url": "http://localhost:8317/v1",
+      "base_url": "http://localhost:8318/v1",
       "api_key": "dummy-not-used",
       "provider": "openai"
     },
     {
       "model_display_name": "GPT-5",
       "model": "gpt-5",
-      "base_url": "http://localhost:8317/v1",
+      "base_url": "http://localhost:8318/v1",
       "api_key": "dummy-not-used",
       "provider": "openai"
     },
     {
       "model_display_name": "GPT-5 (Minimal)",
       "model": "gpt-5-minimal",
-      "base_url": "http://localhost:8317/v1",
+      "base_url": "http://localhost:8318/v1",
       "api_key": "dummy-not-used",
       "provider": "openai"
     },
     {
       "model_display_name": "GPT-5 (Low)",
       "model": "gpt-5-low",
-      "base_url": "http://localhost:8317/v1",
+      "base_url": "http://localhost:8318/v1",
       "api_key": "dummy-not-used",
       "provider": "openai"
     },
     {
       "model_display_name": "GPT-5 (Medium)",
       "model": "gpt-5-medium",
-      "base_url": "http://localhost:8317/v1",
+      "base_url": "http://localhost:8318/v1",
       "api_key": "dummy-not-used",
       "provider": "openai"
     },
     {
       "model_display_name": "GPT-5 (High)",
       "model": "gpt-5-high",
-      "base_url": "http://localhost:8317/v1",
+      "base_url": "http://localhost:8318/v1",
       "api_key": "dummy-not-used",
       "provider": "openai"
     }
