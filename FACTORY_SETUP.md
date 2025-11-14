@@ -116,6 +116,69 @@ Edit your Factory configuration file at `~/.factory/config.json` (if the file do
       "provider": "openai"
     },
     {
+      "model_display_name": "GPT-5.1 Codex",
+      "model": "gpt-5.1-codex",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
+    },
+    {
+      "model_display_name": "GPT-5.1 Codex (Low)",
+      "model": "gpt-5.1-codex-low",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
+    },
+    {
+      "model_display_name": "GPT-5.1 Codex (Medium)",
+      "model": "gpt-5.1-codex-medium",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
+    },
+    {
+      "model_display_name": "GPT-5.1 Codex (High)",
+      "model": "gpt-5.1-codex-high",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
+    },
+    {
+      "model_display_name": "GPT-5.1",
+      "model": "gpt-5.1",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
+    },
+    {
+      "model_display_name": "GPT-5.1 (Minimal)",
+      "model": "gpt-5.1-minimal",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
+    },
+    {
+      "model_display_name": "GPT-5.1 (Low)",
+      "model": "gpt-5.1-low",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
+    },
+    {
+      "model_display_name": "GPT-5.1 (Medium)",
+      "model": "gpt-5.1-medium",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
+    },
+    {
+      "model_display_name": "GPT-5.1 (High)",
+      "model": "gpt-5.1-high",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
+    },
+    {
       "model_display_name": "GPT-5",
       "model": "gpt-5",
       "base_url": "http://localhost:8317/v1",
@@ -168,7 +231,7 @@ Edit your Factory configuration file at `~/.factory/config.json` (if the file do
    Then choose from:
    - `claude-sonnet-4-5-20250929` (Claude 4.5 Sonnet)
    - `claude-opus-4-1-20250805`
-   - `gpt-5`, `gpt-5-codex`, etc.
+   - `gpt-5`, `gpt-5.1`, `gpt-5-codex`, `gpt-5.1-codex`, etc.
 
 3. **Start coding!** Factory will now route all requests through VibeProxy, which handles authentication automatically.
 
@@ -189,6 +252,23 @@ Edit your Factory configuration file at `~/.factory/config.json` (if the file do
 - `gpt-5-minimal` / `low` / `medium` / `high` - Different reasoning effort levels
 - `gpt-5-codex` - Optimized for coding
 - `gpt-5-codex-low` / `medium` / `high` - Codex with different reasoning levels
+- `gpt-5.1` - Next-gen GPT with better reasoning + planning
+- `gpt-5.1-minimal` / `low` / `medium` / `high` - GPT-5.1 with explicit reasoning effort controls
+- `gpt-5.1-codex` - Latest Codex upgrade (faster reasoning + better tool use)
+- `gpt-5.1-codex-low` / `medium` / `high` - Same model with explicit reasoning effort presets
+
+### Upgrading to GPT-5.1 / GPT-5.1 Codex
+
+1. **Update your Factory config**: Add the `"gpt-5.1*"` and `"gpt-5.1-codex*"` blocks from the sample above to `~/.factory/config.json` (keep the GPT-5 entries if teammates still rely on them).
+2. **Reload Factory CLI**: Quit and relaunch `droid`, then run `/model` to refresh the picker. The new GPT-5.1 + GPT-5.1 Codex variants will now appear.
+3. **Pick the right preset**:  
+   - `gpt-5.1` / `gpt-5.1-codex` → balanced reasoning  
+   - `gpt-5.1-minimal` / `-codex-low` → cheapest + minimal chain-of-thought  
+   - `gpt-5.1-medium` / `-codex-medium` → default for day-to-day coding  
+   - `gpt-5.1-high` / `-codex-high` → max reasoning depth (pairs well with Factory’s “Fix Tests” + “Write Spec” droids)
+4. **Sanity-check**: Ask Factory to run `/model`; it will echo your active model so you can confirm the correct GPT-5.1 variant before starting a run.
+
+No CLIProxyAPI update is required—VibeProxy forwards the new model names directly to OpenAI using your Codex OAuth tokens.
 
 ## Troubleshooting
 

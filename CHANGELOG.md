@@ -5,6 +5,12 @@ All notable changes to VibeProxy will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.7] - 2025-11-14
+
+### Added
+- **GPT-5.1 Docs** - Updated README and Factory setup instructions so you can register the new `gpt-5.1*` and `gpt-5.1-codex*` (each with minimal/low/medium/high presets) with Factory CLI and route them through VibeProxy.
+- **CLIProxyAPI 6.3.41** - Bundled the latest upstream binary so GPT-5.1/GPT-5.1 Codex names resolve without manual upgrades.
+
 ## [1.0.6] - 2025-10-15
 
 ### Added
@@ -154,6 +160,7 @@ All future changes will be documented here before release.
 
 ---
 
+[1.0.7]: https://github.com/automazeio/vibeproxy/releases/tag/v1.0.7
 [1.0.6]: https://github.com/automazeio/vibeproxy/releases/tag/v1.0.6
 [1.0.5]: https://github.com/automazeio/vibeproxy/releases/tag/v1.0.5
 [1.0.4]: https://github.com/automazeio/vibeproxy/releases/tag/v1.0.4
