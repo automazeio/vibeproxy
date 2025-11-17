@@ -128,7 +128,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 
     func createSettingsWindow() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
+            contentRect: NSRect(x: 0, y: 0, width: 1000, height: 750),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false

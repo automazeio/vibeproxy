@@ -60,6 +60,41 @@ struct Conversation: Codable, Identifiable {
         updatedAt = Date()
     }
 
+    func exportToMarkdown() -> String {
+        var markdown = "# \(title)\n\n"
+        markdown += "**Model**: \(model)\n"
+        markdown += "**Created**: \(createdAt.formatted(date: .abbreviated, time: .standard))\n"
+
+        if let systemPrompt = systemPrompt {
+            markdown += "\n## System Prompt\n\n\(systemPrompt)\n"
+        }
+
+        if !tags.isEmpty {
+            markdown += "\n**Tags**: \(tags.joined(separator: ", "))\n"
+        }
+
+        markdown += "\n---\n\n## Conversation\n\n"
+
+        for message in messages {
+            let rolePrefix = message.role.prefix(1).uppercased() + message.role.dropFirst()
+            markdown += "### \(rolePrefix)\n\n\(message.content)\n\n"
+        }
+
+        return markdown
+    }
+
+    func exportToJSON() -> String? {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+
+        if let data = try? encoder.encode(self),
+           let jsonString = String(data: data, encoding: .utf8) {
+            return jsonString
+        }
+        return nil
+    }
+
     enum CodingKeys: String, CodingKey {
         case id, title, messages, model, systemPrompt, tags, starred
         case createdAt = "created_at"

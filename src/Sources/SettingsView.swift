@@ -7,6 +7,8 @@ struct SettingsView: View {
     @StateObject private var aliasManager = ModelAliasManager()
     @StateObject private var templateManager = PromptTemplateManager()
     @StateObject private var modelSwitcher = ModelSwitcher()
+    @StateObject private var conversationManager = ConversationManager()
+    @StateObject private var usageManager = UsageManager()
     @State private var launchAtLogin = false
     @State private var isAuthenticatingClaude = false
     @State private var isAuthenticatingCodex = false
@@ -280,6 +282,27 @@ struct SettingsView: View {
                         Label("Templates", systemImage: "doc.text")
                     }
                     .tag(2)
+
+                // Model Switcher Tab
+                ModelSwitcherView(modelSwitcher: modelSwitcher)
+                    .tabItem {
+                        Label("Model", systemImage: "sparkles")
+                    }
+                    .tag(3)
+
+                // Conversations Tab
+                ConversationHistoryView(conversationManager: conversationManager)
+                    .tabItem {
+                        Label("History", systemImage: "clock")
+                    }
+                    .tag(4)
+
+                // Usage Dashboard Tab
+                UsageDashboardView(usageManager: usageManager)
+                    .tabItem {
+                        Label("Usage", systemImage: "chart.bar")
+                    }
+                    .tag(5)
             }
             .padding(0)
 
@@ -301,7 +324,7 @@ struct SettingsView: View {
             }
             .padding(.vertical, 8)
         }
-        .frame(width: 800, height: 600)
+        .frame(width: 1000, height: 750)
         .sheet(isPresented: $showingQwenEmailPrompt) {
             VStack(spacing: 16) {
                 Text("Qwen Account Email")
