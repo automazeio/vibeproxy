@@ -21,6 +21,7 @@ class ThinkingProxy {
     private let targetPort: UInt16 = 8318
     private let targetHost = "127.0.0.1"
     private(set) var isRunning = false
+    private let aliasManager = ModelAliasManager()
     
     /**
      Starts the thinking proxy server on port 8317
@@ -222,17 +223,33 @@ class ThinkingProxy {
     
     /**
      Processes the JSON body to add thinking parameter if model name has a thinking suffix
+     Also resolves model aliases before processing
      Returns tuple of (modifiedJSON, needsTransformation)
      */
     private func processThinkingParameter(jsonString: String) -> (String, Bool)? {
         guard let jsonData = jsonString.data(using: .utf8),
               var json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
-              let model = json["model"] as? String else {
+              var model = json["model"] as? String else {
             return nil
         }
-        
+
+        // First, resolve model alias if one exists
+        let resolvedModel = aliasManager.resolveAlias(model)
+        if resolvedModel != model {
+            NSLog("[ThinkingProxy] Resolved alias '\(model)' → '\(resolvedModel)'")
+            model = resolvedModel
+            json["model"] = model
+        }
+
         // Only process Claude models with thinking suffix
         guard model.starts(with: "claude-") else {
+            // If we resolved an alias, return the modified JSON
+            if resolvedModel != json["model"] as? String {
+                if let modifiedData = try? JSONSerialization.data(withJSONObject: json),
+                   let modifiedString = String(data: modifiedData, encoding: .utf8) {
+                    return (modifiedString, false)
+                }
+            }
             return (jsonString, false)  // Not Claude, pass through
         }
         

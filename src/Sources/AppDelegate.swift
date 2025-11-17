@@ -128,13 +128,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 
     func createSettingsWindow() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1000, height: 900),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
+            styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
         )
         window.title = "VibeProxy"
         window.center()
+        window.isReleasedWhenClosed = false
 
         let contentView = SettingsView(serverManager: serverManager)
         window.contentView = NSHostingView(rootView: contentView)

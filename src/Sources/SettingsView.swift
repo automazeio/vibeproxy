@@ -4,6 +4,9 @@ import ServiceManagement
 struct SettingsView: View {
     @ObservedObject var serverManager: ServerManager
     @StateObject private var authManager = AuthManager()
+    @StateObject private var aliasManager = ModelAliasManager()
+    @StateObject private var templateManager = PromptTemplateManager()
+    @StateObject private var modelSwitcher = ModelSwitcher()
     @State private var launchAtLogin = false
     @State private var isAuthenticatingClaude = false
     @State private var isAuthenticatingCodex = false
@@ -15,6 +18,7 @@ struct SettingsView: View {
     @State private var fileMonitor: DispatchSourceFileSystemObject?
     @State private var showingQwenEmailPrompt = false
     @State private var qwenEmail = ""
+    @State private var selectedTab: Int = 0
     
     private enum DisconnectTiming {
         static let serverRestartDelay: TimeInterval = 0.3
@@ -30,283 +34,274 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Form {
-                Section {
-                    HStack {
-                        Text("Server status")
-                        Spacer()
-                        Button(action: {
-                            if serverManager.isRunning {
-                                serverManager.stop()
-                            } else {
-                                serverManager.start { _ in }
-                            }
-                        }) {
-                            HStack(spacing: 6) {
-                                Circle()
-                                    .fill(serverManager.isRunning ? Color.green : Color.red)
-                                    .frame(width: 8, height: 8)
-                                Text(serverManager.isRunning ? "Running" : "Stopped")
-                            }
-                        }
-                        .buttonStyle(.plain)
+            // Header with Server Status
+            VStack(spacing: 12) {
+                HStack {
+                    Text("VibeProxy")
+                        .font(.headline)
+                    Spacer()
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(serverManager.isRunning ? Color.green : Color.red)
+                            .frame(width: 8, height: 8)
+                        Text(serverManager.isRunning ? "Running" : "Stopped")
+                            .font(.caption)
                     }
                 }
 
-                Section {
+                HStack(spacing: 12) {
                     Toggle("Launch at login", isOn: $launchAtLogin)
                         .onChange(of: launchAtLogin) { newValue in
                             toggleLaunchAtLogin(newValue)
                         }
 
-                    HStack {
-                        Text("Auth files")
-                        Spacer()
-                        Button("Open Folder") {
-                            openAuthFolder()
-                        }
-                    }
-                }
-
-                Section("Services") {
-                HStack {
-                    if let nsImage = IconCatalog.shared.image(named: "icon-claude.png", resizedTo: NSSize(width: 20, height: 20), template: true) {
-                        Image(nsImage: nsImage)
-                            .resizable()
-                            .renderingMode(.template)
-                            .frame(width: 20, height: 20)
-                    }
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Claude Code")
-                        if authManager.claudeStatus.isAuthenticated {
-                            Text(authManager.claudeStatus.email ?? "Connected")
-                                .font(.caption2)
-                                .foregroundColor(authManager.claudeStatus.isExpired ? .red : .green)
-                            if authManager.claudeStatus.isExpired {
-                                Text("(expired)")
-                                    .font(.caption2)
-                                    .foregroundColor(.red)
-                            }
-                        }
-                    }
-                    Spacer()
-                    if isAuthenticatingClaude {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        if authManager.claudeStatus.isAuthenticated {
-                            if authManager.claudeStatus.isExpired {
-                                Button("Reconnect") {
-                                    connectClaudeCode()
-                                }
-                            } else {
-                                Button("Disconnect") {
-                                    disconnectClaudeCode()
-                                }
-                            }
+                    Button(action: {
+                        if serverManager.isRunning {
+                            serverManager.stop()
                         } else {
-                            Button("Connect") {
-                                connectClaudeCode()
-                            }
+                            serverManager.start { _ in }
                         }
+                    }) {
+                        Text(serverManager.isRunning ? "Stop" : "Start")
+                            .frame(width: 60)
                     }
-                }
-
-                HStack {
-                    if let nsImage = IconCatalog.shared.image(named: "icon-codex.png", resizedTo: NSSize(width: 20, height: 20), template: true) {
-                        Image(nsImage: nsImage)
-                            .resizable()
-                            .renderingMode(.template)
-                            .frame(width: 20, height: 20)
-                    }
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Codex")
-                        if authManager.codexStatus.isAuthenticated {
-                            Text(authManager.codexStatus.email ?? "Connected")
-                                .font(.caption2)
-                                .foregroundColor(authManager.codexStatus.isExpired ? .red : .green)
-                            if authManager.codexStatus.isExpired {
-                                Text("(expired)")
-                                    .font(.caption2)
-                                    .foregroundColor(.red)
-                            }
-                        }
-                    }
-                    Spacer()
-                    if isAuthenticatingCodex {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        if authManager.codexStatus.isAuthenticated {
-                            if authManager.codexStatus.isExpired {
-                                Button("Reconnect") {
-                                    connectCodex()
-                                }
-                            } else {
-                                Button("Disconnect") {
-                                    disconnectCodex()
-                                }
-                            }
-                        } else {
-                            Button("Connect") {
-                                connectCodex()
-                            }
-                        }
-                    }
-                }
-
-                HStack {
-                    if let nsImage = IconCatalog.shared.image(named: "icon-gemini.png", resizedTo: NSSize(width: 20, height: 20), template: true) {
-                        Image(nsImage: nsImage)
-                            .resizable()
-                            .renderingMode(.template)
-                            .frame(width: 20, height: 20)
-                    }
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Gemini")
-                        if authManager.geminiStatus.isAuthenticated {
-                            Text(authManager.geminiStatus.email ?? "Connected")
-                                .font(.caption2)
-                                .foregroundColor(authManager.geminiStatus.isExpired ? .red : .green)
-                            if authManager.geminiStatus.isExpired {
-                                Text("(expired)")
-                                    .font(.caption2)
-                                    .foregroundColor(.red)
-                            }
-                        }
-                    }
-                    Spacer()
-                    if isAuthenticatingGemini {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        if authManager.geminiStatus.isAuthenticated {
-                            if authManager.geminiStatus.isExpired {
-                                Button("Reconnect") {
-                                    connectGemini()
-                                }
-                            } else {
-                                Button("Disconnect") {
-                                    disconnectGemini()
-                                }
-                            }
-                        } else {
-                            Button("Connect") {
-                                connectGemini()
-                            }
-                        }
-                    }
-                }
-                .help("⚠️ Note: If you're an existing Gemini user with multiple projects, authentication will use your default project. Set your desired project as default in Google AI Studio before connecting.")
-
-                HStack {
-                    if let nsImage = IconCatalog.shared.image(named: "icon-qwen.png", resizedTo: NSSize(width: 20, height: 20), template: true) {
-                        Image(nsImage: nsImage)
-                            .resizable()
-                            .renderingMode(.template)
-                            .frame(width: 20, height: 20)
-                    }
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Qwen")
-                        if authManager.qwenStatus.isAuthenticated {
-                            Text(authManager.qwenStatus.email ?? "Connected")
-                                .font(.caption2)
-                                .foregroundColor(authManager.qwenStatus.isExpired ? .red : .green)
-                            if authManager.qwenStatus.isExpired {
-                                Text("(expired)")
-                                    .font(.caption2)
-                                    .foregroundColor(.red)
-                            }
-                        }
-                    }
-                    Spacer()
-                    if isAuthenticatingQwen {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        if authManager.qwenStatus.isAuthenticated {
-                            if authManager.qwenStatus.isExpired {
-                                Button("Reconnect") {
-                                    connectQwen()
-                                }
-                            } else {
-                                Button("Disconnect") {
-                                    disconnectQwen()
-                                }
-                            }
-                        } else {
-                            Button("Connect") {
-                                connectQwen()
-                            }
-                        }
-                    }
-                }
                 }
             }
-            .formStyle(.grouped)
-            .scrollDisabled(true)
+            .padding()
+            .background(Color(.controlBackgroundColor))
 
-            Spacer()
-                .frame(height: 12)
+            // Tabs
+            TabView(selection: $selectedTab) {
+                // Services Tab
+                VStack(spacing: 12) {
+                    Form {
+                        Section("Services") {
+                            HStack {
+                                if let nsImage = IconCatalog.shared.image(named: "icon-claude.png", resizedTo: NSSize(width: 20, height: 20), template: true) {
+                                    Image(nsImage: nsImage)
+                                        .resizable()
+                                        .renderingMode(.template)
+                                        .frame(width: 20, height: 20)
+                                }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Claude Code")
+                                    if authManager.claudeStatus.isAuthenticated {
+                                        Text(authManager.claudeStatus.email ?? "Connected")
+                                            .font(.caption2)
+                                            .foregroundColor(authManager.claudeStatus.isExpired ? .red : .green)
+                                        if authManager.claudeStatus.isExpired {
+                                            Text("(expired)")
+                                                .font(.caption2)
+                                                .foregroundColor(.red)
+                                        }
+                                    }
+                                }
+                                Spacer()
+                                if isAuthenticatingClaude {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                } else {
+                                    if authManager.claudeStatus.isAuthenticated {
+                                        if authManager.claudeStatus.isExpired {
+                                            Button("Reconnect") {
+                                                connectClaudeCode()
+                                            }
+                                        } else {
+                                            Button("Disconnect") {
+                                                disconnectClaudeCode()
+                                            }
+                                        }
+                                    } else {
+                                        Button("Connect") {
+                                            connectClaudeCode()
+                                        }
+                                    }
+                                }
+                            }
+
+                            HStack {
+                                if let nsImage = IconCatalog.shared.image(named: "icon-codex.png", resizedTo: NSSize(width: 20, height: 20), template: true) {
+                                    Image(nsImage: nsImage)
+                                        .resizable()
+                                        .renderingMode(.template)
+                                        .frame(width: 20, height: 20)
+                                }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Codex")
+                                    if authManager.codexStatus.isAuthenticated {
+                                        Text(authManager.codexStatus.email ?? "Connected")
+                                            .font(.caption2)
+                                            .foregroundColor(authManager.codexStatus.isExpired ? .red : .green)
+                                        if authManager.codexStatus.isExpired {
+                                            Text("(expired)")
+                                                .font(.caption2)
+                                                .foregroundColor(.red)
+                                        }
+                                    }
+                                }
+                                Spacer()
+                                if isAuthenticatingCodex {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                } else {
+                                    if authManager.codexStatus.isAuthenticated {
+                                        if authManager.codexStatus.isExpired {
+                                            Button("Reconnect") {
+                                                connectCodex()
+                                            }
+                                        } else {
+                                            Button("Disconnect") {
+                                                disconnectCodex()
+                                            }
+                                        }
+                                    } else {
+                                        Button("Connect") {
+                                            connectCodex()
+                                        }
+                                    }
+                                }
+                            }
+
+                            HStack {
+                                if let nsImage = IconCatalog.shared.image(named: "icon-gemini.png", resizedTo: NSSize(width: 20, height: 20), template: true) {
+                                    Image(nsImage: nsImage)
+                                        .resizable()
+                                        .renderingMode(.template)
+                                        .frame(width: 20, height: 20)
+                                }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Gemini")
+                                    if authManager.geminiStatus.isAuthenticated {
+                                        Text(authManager.geminiStatus.email ?? "Connected")
+                                            .font(.caption2)
+                                            .foregroundColor(authManager.geminiStatus.isExpired ? .red : .green)
+                                        if authManager.geminiStatus.isExpired {
+                                            Text("(expired)")
+                                                .font(.caption2)
+                                                .foregroundColor(.red)
+                                        }
+                                    }
+                                }
+                                Spacer()
+                                if isAuthenticatingGemini {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                } else {
+                                    if authManager.geminiStatus.isAuthenticated {
+                                        if authManager.geminiStatus.isExpired {
+                                            Button("Reconnect") {
+                                                connectGemini()
+                                            }
+                                        } else {
+                                            Button("Disconnect") {
+                                                disconnectGemini()
+                                            }
+                                        }
+                                    } else {
+                                        Button("Connect") {
+                                            connectGemini()
+                                        }
+                                    }
+                                }
+                            }
+                            .help("⚠️ Note: If you're an existing Gemini user with multiple projects, authentication will use your default project. Set your desired project as default in Google AI Studio before connecting.")
+
+                            HStack {
+                                if let nsImage = IconCatalog.shared.image(named: "icon-qwen.png", resizedTo: NSSize(width: 20, height: 20), template: true) {
+                                    Image(nsImage: nsImage)
+                                        .resizable()
+                                        .renderingMode(.template)
+                                        .frame(width: 20, height: 20)
+                                }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Qwen")
+                                    if authManager.qwenStatus.isAuthenticated {
+                                        Text(authManager.qwenStatus.email ?? "Connected")
+                                            .font(.caption2)
+                                            .foregroundColor(authManager.qwenStatus.isExpired ? .red : .green)
+                                        if authManager.qwenStatus.isExpired {
+                                            Text("(expired)")
+                                                .font(.caption2)
+                                                .foregroundColor(.red)
+                                        }
+                                    }
+                                }
+                                Spacer()
+                                if isAuthenticatingQwen {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                } else {
+                                    if authManager.qwenStatus.isAuthenticated {
+                                        if authManager.qwenStatus.isExpired {
+                                            Button("Reconnect") {
+                                                connectQwen()
+                                            }
+                                        } else {
+                                            Button("Disconnect") {
+                                                disconnectQwen()
+                                            }
+                                        }
+                                    } else {
+                                        Button("Connect") {
+                                            connectQwen()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Section {
+                            HStack {
+                                Text("Auth files")
+                                Spacer()
+                                Button("Open Folder") {
+                                    openAuthFolder()
+                                }
+                            }
+                        }
+                    }
+                    .formStyle(.grouped)
+                }
+                .tabItem {
+                    Label("Services", systemImage: "network")
+                }
+                .tag(0)
+
+                // Aliases Tab
+                ModelAliasView(aliasManager: aliasManager)
+                    .tabItem {
+                        Label("Aliases", systemImage: "tag")
+                    }
+                    .tag(1)
+
+                // Templates Tab
+                PromptTemplateView(templateManager: templateManager)
+                    .tabItem {
+                        Label("Templates", systemImage: "doc.text")
+                    }
+                    .tag(2)
+            }
+            .padding(0)
 
             // Footer outside Form
             VStack(spacing: 4) {
+                Divider()
+
                 HStack(spacing: 4) {
-                    Text("VibeProxy \(appVersion) was made possible thanks to")
+                    Text("VibeProxy \(appVersion)")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    Link("CLIProxyAPI", destination: URL(string: "https://github.com/router-for-me/CLIProxyAPI")!)
-                        .font(.caption)
-                        .underline()
-                        .foregroundColor(.secondary)
-                        .onHover { inside in
-                            if inside {
-                                NSCursor.pointingHand.push()
-                            } else {
-                                NSCursor.pop()
-                            }
-                        }
                     Text("|")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    Text("License: MIT")
+                    Link("GitHub", destination: URL(string: "https://github.com/automazeio/vibeproxy/issues")!)
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(.blue)
                 }
-
-                HStack(spacing: 4) {
-                    Text("© 2025")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Link("Automaze, Ltd.", destination: URL(string: "https://automaze.io")!)
-                        .font(.caption)
-                        .underline()
-                        .foregroundColor(.secondary)
-                        .onHover { inside in
-                            if inside {
-                                NSCursor.pointingHand.push()
-                            } else {
-                                NSCursor.pop()
-                            }
-                        }
-                    Text("All rights reserved.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-
-                Link("Report an issue", destination: URL(string: "https://github.com/automazeio/vibeproxy/issues")!)
-                    .font(.caption)
-                    .onHover { inside in
-                        if inside {
-                            NSCursor.pointingHand.push()
-                        } else {
-                            NSCursor.pop()
-                        }
-                    }
             }
-            .padding(.bottom, 12)
+            .padding(.vertical, 8)
         }
-        .frame(width: 480, height: 490)
+        .frame(width: 800, height: 600)
         .sheet(isPresented: $showingQwenEmailPrompt) {
             VStack(spacing: 16) {
                 Text("Qwen Account Email")
