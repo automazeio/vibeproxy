@@ -5,11 +5,12 @@ All notable changes to VibeProxy will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.7] - 2025-11-14
+## [1.0.7] - 2025-11-19
 
 ### Added
+- **Auto-Update Workflow** - Added GitHub Action to automatically check for and update the bundled CLIProxyAPI binary.
 - **GPT-5.1 Docs** - Updated README and Factory setup instructions so you can register the new `gpt-5.1*` and `gpt-5.1-codex*` (each with minimal/low/medium/high presets) with Factory CLI and route them through VibeProxy.
-- **CLIProxyAPI 6.3.41** - Bundled the latest upstream binary so GPT-5.1/GPT-5.1 Codex names resolve without manual upgrades.
+- **CLIProxyAPI 6.3.57** - Bundled the latest upstream binary with GPT-5.1 Codex Max model definitions and support.
 
 ## [1.0.6] - 2025-10-15
 

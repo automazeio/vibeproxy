@@ -268,7 +268,7 @@ Edit your Factory configuration file at `~/.factory/config.json` (if the file do
    - `gpt-5.1-high` / `-codex-high` → max reasoning depth (pairs well with Factory’s “Fix Tests” + “Write Spec” droids)
 4. **Sanity-check**: Ask Factory to run `/model`; it will echo your active model so you can confirm the correct GPT-5.1 variant before starting a run.
 
-No CLIProxyAPI update is required—VibeProxy forwards the new model names directly to OpenAI using your Codex OAuth tokens.
+No manual CLIProxyAPI update is required—VibeProxy automatically keeps CLIProxyAPI up to date via our new auto-update workflow, so you can use new models immediately.
 
 ## Troubleshooting
 
