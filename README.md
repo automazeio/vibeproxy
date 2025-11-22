@@ -1,152 +1,98 @@
-# VibeProxy
+# CLI Proxy API
 
-<p align="center">
-  <img src="icon.png" width="128" height="128" alt="VibeProxy Icon">
-</p>
+English | [中文](README_CN.md)
 
-<p align="center">
-<a href="https://automaze.io" rel="nofollow"><img alt="Automaze" src="https://img.shields.io/badge/By-automaze.io-4b3baf" style="max-width: 100%;"></a>
-<a href="https://github.com/automazeio/vibeproxy/blob/main/LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/License-MIT-28a745" style="max-width: 100%;"></a>
-<a href="http://x.com/intent/follow?screen_name=aroussi" rel="nofollow"><img alt="Follow on 𝕏" src="https://img.shields.io/badge/Follow-%F0%9D%95%8F/@aroussi-1c9bf0" style="max-width: 100%;"></a>
-<a href="https://github.com/automazeio/vibeproxy"><img alt="Star this repo" src="https://img.shields.io/github/stars/automazeio/vibeproxy.svg?style=social&amp;label=Star%20this%20repo&amp;maxAge=60" style="max-width: 100%;"></a></p>
-</p>
+A proxy server that provides OpenAI/Gemini/Claude/Codex compatible API interfaces for CLI.
 
-**Stop paying twice for AI.** VibeProxy is a beautiful native macOS menu bar app that lets you use your existing Claude Code, ChatGPT, **Gemini**, **Qwen**, and **Antigravity** subscriptions with powerful AI coding tools like **[Factory Droids](https://app.factory.ai/r/FM8BJHFQ)** – no separate API keys required.
+It now also supports OpenAI Codex (GPT models) and Claude Code via OAuth.
 
-Built on [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI), it handles OAuth authentication, token management, and API routing automatically. One click to authenticate, zero friction to code.
+So you can use local or multi-account CLI access with OpenAI(include Responses)/Gemini/Claude-compatible clients and SDKs.
 
+## Sponsor
 
-<p align="center">
-<br>
-  <a href="https://www.loom.com/share/5cf54acfc55049afba725ab443dd3777"><img src="vibeproxy-factory-video.webp" width="600" height="380" alt="VibeProxy Screenshot" border="0"></a>
-</p>
+[![z.ai](https://assets.router-for.me/english.png)](https://z.ai/subscribe?ic=8JVLJQFSKB)
 
-> [!NOTE]
-> 📣 **NEW: Gemini 3 Pro Support via Antigravity! 🚀** VibeProxy v1.0.9+ now supports Google's latest Gemini 3 Pro models through Antigravity authentication. Connect with your Google account to access `gemini-3-pro-high`, `gemini-3-pro-low`, and `gemini-3-pro-image`. See the [Factory Setup Guide](FACTORY_SETUP.md#step-2-connect-your-accounts) for configuration details.
->
-> 📣 **NEW: Auto-Updates! 🔄** VibeProxy now automatically checks for and downloads the latest CLIProxyAPI binary updates in the background. You'll always have support for the newest models without lifting a finger.
->
-> 📣 **NEW: GPT-5.1 & GPT-5.1 Codex Support! ⚡️** Drop the brand-new `gpt-5.1*` and `gpt-5.1-codex*` models into your Factory CLI config and VibeProxy will route them through your ChatGPT subscription automatically. Follow the updated [Factory setup](FACTORY_SETUP.md#step-3-configure-factory-cli) snippet.
->
-> 📣 **NEW: Extended Thinking Support! 🧠** VibeProxy now supports Claude's extended thinking feature with dynamic budgets (4K, 10K, 32K tokens). Use model names like `claude-sonnet-4-5-20250929-thinking-10000` to enable extended thinking. See the [Factory Setup Guide](FACTORY_SETUP.md#step-3-configure-factory-cli) for details.
-> 
-> 📣 **NEW: Gemini and Qwen Support! 🎉** VibeProxy now supports Google's Gemini AI and Qwen AI with full OAuth authentication. Connect your accounts and use Gemini and Qwen with your favorite AI coding tools!
+This project is sponsored by Z.ai, supporting us with their GLM CODING PLAN.
 
----
+GLM CODING PLAN is a subscription service designed for AI coding, starting at just $3/month. It provides access to their flagship GLM-4.6 model across 10+ popular AI coding tools (Claude Code, Cline, Roo Code, etc.), offering developers top-tier, fast, and stable coding experiences.
 
-> [!TIP]
-> Check out our [Factory Setup Guide](FACTORY_SETUP.md) for step-by-step instructions on how to use VibeProxy with Factory Droids.
+Get 10% OFF GLM CODING PLAN：https://z.ai/subscribe?ic=8JVLJQFSKB
 
----
+## Overview
 
-## Features
+- OpenAI/Gemini/Claude compatible API endpoints for CLI models
+- OpenAI Codex support (GPT models) via OAuth login
+- Claude Code support via OAuth login
+- Qwen Code support via OAuth login
+- iFlow support via OAuth login
+- Amp CLI and IDE extensions support with provider routing
+- Streaming and non-streaming responses
+- Function calling/tools support
+- Multimodal input support (text and images)
+- Multiple accounts with round-robin load balancing (Gemini, OpenAI, Claude, Qwen and iFlow)
+- Simple CLI authentication flows (Gemini, OpenAI, Claude, Qwen and iFlow)
+- Generative Language API Key support
+- AI Studio Build multi-account load balancing
+- Gemini CLI multi-account load balancing
+- Claude Code multi-account load balancing
+- Qwen Code multi-account load balancing
+- iFlow multi-account load balancing
+- OpenAI Codex multi-account load balancing
+- OpenAI-compatible upstream providers via config (e.g., OpenRouter)
+- Reusable Go SDK for embedding the proxy (see `docs/sdk-usage.md`)
 
-- 🎯 **Native macOS Experience** - Clean, native SwiftUI interface that feels right at home on macOS
-- 🚀 **One-Click Server Management** - Start/stop the proxy server from your menu bar
-- 🔐 **OAuth Integration** - Authenticate with Codex, Claude Code, Gemini, Qwen, and Antigravity directly from the app
-- 📊 **Real-Time Status** - Live connection status and automatic credential detection
-- 🔄 **Auto-Updates** - Monitors auth files and updates UI in real-time
-- 🎨 **Beautiful Icons** - Custom icons with dark mode support
-- 💾 **Self-Contained** - Everything bundled inside the .app (server binary, config, static files)
+## Getting Started
 
+CLIProxyAPI Guides: [https://help.router-for.me/](https://help.router-for.me/)
 
-## Installation
+## Management API
 
-**⚠️ Requirements:** macOS running on **Apple Silicon only** (M1/M2/M3/M4 Macs). Intel Macs are not supported.
+see [MANAGEMENT_API.md](https://help.router-for.me/management/api)
 
-### Download Pre-built Release (Recommended)
+## Amp CLI Support
 
-1. Go to the [**Releases**](https://github.com/automazeio/vibeproxy/releases) page
-2. Download the latest `VibeProxy.zip`
-3. Extract and drag `VibeProxy.app` to `/Applications`
-4. Launch VibeProxy
+CLIProxyAPI includes integrated support for [Amp CLI](https://ampcode.com) and Amp IDE extensions, enabling you to use your Google/ChatGPT/Claude OAuth subscriptions with Amp's coding tools:
 
-**Code Signed & Notarized** ✅ - No Gatekeeper warnings, installs seamlessly on macOS.
+- Provider route aliases for Amp's API patterns (`/api/provider/{provider}/v1...`)
+- Management proxy for OAuth authentication and account features
+- Smart model fallback with automatic routing
+- Security-first design with localhost-only management endpoints
 
-### Build from Source
+**→ [Complete Amp CLI Integration Guide](docs/amp-cli-integration.md)**
 
-Want to build it yourself? See [**INSTALLATION.md**](INSTALLATION.md) for detailed build instructions.
+## SDK Docs
 
-## Usage
+- Usage: [docs/sdk-usage.md](docs/sdk-usage.md)
+- Advanced (executors & translators): [docs/sdk-advanced.md](docs/sdk-advanced.md)
+- Access: [docs/sdk-access.md](docs/sdk-access.md)
+- Watcher: [docs/sdk-watcher.md](docs/sdk-watcher.md)
+- Custom Provider Example: `examples/custom-provider`
 
-### First Launch
+## Contributing
 
-1. Launch VibeProxy - you'll see a menu bar icon
-2. Click the icon and select "Open Settings"
-3. The server will start automatically
-4. Click "Connect" for Claude Code, Codex, Gemini, Qwen, or Antigravity to authenticate
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-### Authentication
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-When you click "Connect":
-1. Your browser opens with the OAuth page
-2. Complete the authentication in the browser
-3. VibeProxy automatically detects your credentials
-4. Status updates to show you're connected
+## Who is with us?
 
-### Server Management
+Those projects are based on CLIProxyAPI:
 
-- **Toggle Server**: Click the status (Running/Stopped) to start/stop
-- **Menu Bar Icon**: Shows active/inactive state
-- **Launch at Login**: Toggle to start VibeProxy automatically
+### [vibeproxy](https://github.com/automazeio/vibeproxy)
 
-## Requirements
+Native macOS menu bar app to use your Claude Code & ChatGPT subscriptions with AI coding tools - no API keys needed
 
-- macOS 13.0 (Ventura) or later
+### [Subtitle Translator](https://github.com/VjayC/SRT-Subtitle-Translator-Validator)
 
-## Development
+Browser-based tool to translate SRT subtitles using your Gemini subscription via CLIProxyAPI with automatic validation/error correction - no API keys needed
 
-### Project Structure
-
-```
-VibeProxy/
-├── Sources/
-│   ├── main.swift              # App entry point
-│   ├── AppDelegate.swift       # Menu bar & window management
-│   ├── ServerManager.swift     # Server process control & auth
-│   ├── SettingsView.swift      # Main UI
-│   ├── AuthStatus.swift        # Auth file monitoring
-│   └── Resources/
-│       ├── AppIcon.iconset     # App icon
-│       ├── AppIcon.icns        # App icon
-│       ├── cli-proxy-api       # CLIProxyAPI binary
-│       ├── config.yaml         # CLIProxyAPI config
-│       ├── icon-active.png     # Menu bar icon (active)
-│       ├── icon-inactive.png   # Menu bar icon (inactive)
-│       ├── icon-claude.png     # Claude Code service icon
-│       ├── icon-codex.png      # Codex service icon
-│       ├── icon-gemini.png     # Gemini service icon
-│       └── icon-qwen.png       # Qwen service icon
-├── Package.swift               # Swift Package Manager config
-├── Info.plist                  # macOS app metadata
-├── build.sh                    # Resource bundling script
-├── create-app-bundle.sh        # App bundle creation script
-└── Makefile                    # Build automation
-```
-
-### Key Components
-
-- **AppDelegate**: Manages the menu bar item and settings window lifecycle
-- **ServerManager**: Controls the cli-proxy-api server process and OAuth authentication
-- **SettingsView**: SwiftUI interface with native macOS design
-- **AuthStatus**: Monitors `~/.cli-proxy-api/` for authentication files
-- **File Monitoring**: Real-time updates when auth files are added/removed
-
-## Credits
-
-VibeProxy is built on top of [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI), an excellent unified proxy server for AI services.
-
-Special thanks to the CLIProxyAPI project for providing the core functionality that makes VibeProxy possible.
+> [!NOTE]  
+> If you developed a project based on CLIProxyAPI, please open a PR to add it to this list.
 
 ## License
 
-MIT License - see LICENSE file for details
-
-## Support
-
-- **Report Issues**: [GitHub Issues](https://github.com/automazeio/vibeproxy/issues)
-- **Website**: [automaze.io](https://automaze.io)
-
----
-
-© 2025 [Automaze, Ltd.](https://automaze.io) All rights reserved.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
