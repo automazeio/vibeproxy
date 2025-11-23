@@ -60,81 +60,77 @@ jobs:
           TARGET_DIR="src/Sources/Resources"
           TARGET_FILE="$TARGET_DIR/cli-proxy-api"
           
+          # Create a temporary directory for extraction
+          TEMP_DIR=$(mktemp -d)
+          echo "Using temporary directory: $TEMP_DIR"
+          
           echo "Downloading $URL..."
-          if ! wget -q -O "$FILENAME" "$URL"; then
+          if ! wget -q -O "$TEMP_DIR/$FILENAME" "$URL"; then
             echo "Error: Failed to download $URL" >&2
+            rm -rf "$TEMP_DIR"
             exit 1
           fi
           
-          if [ ! -s "$FILENAME" ]; then
+          if [ ! -s "$TEMP_DIR/$FILENAME" ]; then
              echo "Error: Downloaded file is empty" >&2
+             rm -rf "$TEMP_DIR"
              exit 1
           fi
           
           echo "Validating tarball..."
-          if ! tar -tzf "$FILENAME" > /dev/null; then
+          if ! tar -tzf "$TEMP_DIR/$FILENAME" > /dev/null; then
              echo "Error: Invalid tarball" >&2
+             rm -rf "$TEMP_DIR"
              exit 1
           fi
           
-          echo "Extracting..."
-          tar -xzf "$FILENAME"
+          echo "Extracting to temporary directory..."
+          tar -xzf "$TEMP_DIR/$FILENAME" -C "$TEMP_DIR"
           
           # Find the binary file - look for files named cli-proxy-api or CLIProxyAPI
           # These are the expected binary names, not documentation or config files
-          EXTRACTED_FILE=$(tar -tf "$FILENAME" | grep -E '^(cli-proxy-api|CLIProxyAPI)$' | head -n 1)
+          EXTRACTED_FILE=$(tar -tf "$TEMP_DIR/$FILENAME" | grep -E '^(cli-proxy-api|CLIProxyAPI)$' | head -n 1)
           
           # If not found by exact name, exclude all known non-binary files
           if [ -z "$EXTRACTED_FILE" ]; then
-            EXTRACTED_FILE=$(tar -tf "$FILENAME" | grep -v -E '(LICENSE|README|\.md$|\.txt$|\.yaml$|\.yml$|\.json$)' | head -n 1)
+            EXTRACTED_FILE=$(tar -tf "$TEMP_DIR/$FILENAME" | grep -v -E '(LICENSE|README|\.md$|\.txt$|\.yaml$|\.yml$|\.json$)' | head -n 1)
           fi
           
           if [ -z "$EXTRACTED_FILE" ]; then
              echo "Error: Could not find binary in tarball" >&2
              echo "Tarball contents:" >&2
-             tar -tf "$FILENAME" >&2
+             tar -tf "$TEMP_DIR/$FILENAME" >&2
+             rm -rf "$TEMP_DIR"
              exit 1
           fi
           
           echo "Found binary: $EXTRACTED_FILE"
           
-          if [ ! -f "$EXTRACTED_FILE" ]; then
+          if [ ! -f "$TEMP_DIR/$EXTRACTED_FILE" ]; then
              echo "Error: Extraction failed, $EXTRACTED_FILE not found" >&2
+             rm -rf "$TEMP_DIR"
              exit 1
           fi
           
           echo "Creating target directory..."
           mkdir -p "$TARGET_DIR"
           
-          echo "Moving $EXTRACTED_FILE to $TARGET_FILE"
-          mv "$EXTRACTED_FILE" "$TARGET_FILE"
+          echo "Copying $EXTRACTED_FILE to $TARGET_FILE"
+          cp "$TEMP_DIR/$EXTRACTED_FILE" "$TARGET_FILE"
           
           if [ ! -f "$TARGET_FILE" ]; then
-             echo "Error: Failed to move file to $TARGET_FILE" >&2
+             echo "Error: Failed to copy file to $TARGET_FILE" >&2
+             rm -rf "$TEMP_DIR"
              exit 1
           fi
           
           if [ ! -s "$TARGET_FILE" ]; then
              echo "Error: Target file is empty" >&2
+             rm -rf "$TEMP_DIR"
              exit 1
           fi
 
           chmod +x "$TARGET_FILE"
-          
-          # Clean up: Remove the tarball and any unwanted extracted files
-          # We only want the binary in src/Sources/Resources/cli-proxy-api
-          echo "Cleaning up unwanted extracted files..."
-          rm -f "$FILENAME"
-          
-          # Remove known unwanted files from the CLIProxyAPI tarball
-          rm -f config.example.yaml config.yaml
-          rm -f README.md README_CN.md LICENSE
-          
-          # List any remaining files that might have been extracted (for debugging)
-          if [ -n "$(git status --porcelain | grep -v 'src/Sources/Resources/cli-proxy-api')" ]; then
-            echo "Warning: Found unexpected files in working directory:"
-            git status --porcelain
-          fi
           
           echo "Verifying binary (basic checks)..."
           # Can't execute macOS ARM64 binary on Linux runner, so just verify:
@@ -143,6 +139,7 @@ jobs:
           FILE_SIZE=$(stat -c%s "$TARGET_FILE" 2>/dev/null || stat -f%z "$TARGET_FILE" 2>/dev/null)
           if [ -z "$FILE_SIZE" ] || [ "$FILE_SIZE" -lt 1048576 ]; then
              echo "Error: Binary file is too small (${FILE_SIZE:-0} bytes)" >&2
+             rm -rf "$TEMP_DIR"
              exit 1
           fi
           
@@ -156,6 +153,22 @@ jobs:
           fi
           
           echo "✓ Binary verification passed (${FILE_SIZE} bytes)"
+          
+          # Clean up temporary directory
+          echo "Cleaning up temporary directory..."
+          rm -rf "$TEMP_DIR"
+          
+          # Verify git status shows only the binary was modified
+          echo "Git status:"
+          git status --porcelain
+          
+          # Ensure only the binary file is changed
+          CHANGED_FILES=$(git status --porcelain | grep -v "^ M src/Sources/Resources/cli-proxy-api$" || true)
+          if [ -n "$CHANGED_FILES" ]; then
+            echo "Error: Unexpected files were modified:" >&2
+            echo "$CHANGED_FILES" >&2
+            exit 1
+          fi
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v6
