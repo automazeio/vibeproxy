@@ -20,6 +20,32 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Close old unmerged bump PRs
+        env:
+          GH_TOKEN: ${{ secrets.AUTO_UPDATE_TOKEN }}
+        run: |
+          set -e
+          echo "Checking for existing auto-generated bump PRs..."
+          
+          OLD_PRS=$(gh pr list --state open --json number,headRefName,title --jq '.[] | select(.headRefName | startswith("bump-cliproxyapi-")) | "\(.number)|\(.title)"' || true)
+          
+          if [ -z "$OLD_PRS" ]; then
+            echo "No existing auto-generated bump PRs found."
+          else
+            echo "Found existing auto-generated bump PRs to close:"
+            
+            while IFS='|' read -r PR_NUMBER PR_TITLE; do
+              if [ -n "$PR_NUMBER" ]; then
+                echo "Closing PR #$PR_NUMBER: $PR_TITLE"
+                gh pr close "$PR_NUMBER" --comment "Closing this PR as a newer version bump is being created." || {
+                  echo "Warning: Failed to close PR #$PR_NUMBER" >&2
+                }
+              fi
+            done <<< "$OLD_PRS"
+            
+            echo "✓ Closed old auto-generated bump PRs"
+          fi
+
       - name: Get latest CLIProxyAPI release
         id: get-latest-release
         run: |
