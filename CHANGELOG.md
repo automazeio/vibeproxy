@@ -38,13 +38,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ThinkingProxy path rewrites apply before management route detection
 - Location header rewriting in Amp responses ensures redirects work through proxy
 - API key resolution from `~/.local/share/amp/secrets.json` for fallback requests
-- Compatible with CLIProxyAPI 6.5.7's Amp module
+- Compatible with CLIProxyAPI 6.5.16's Amp module
 
 ## [1.1.0] - 2025-11-22
 
 ### Updated
-- **CLIProxyAPI 6.5.7** - Latest upstream release with improvements and bug fixes
-  - Commit: 9d50a68, Built: 2025-11-22T13:36:45Z
+- **CLIProxyAPI 6.5.16** - Latest upstream release with improvements and bug fixes
   - Various upstream improvements and stability enhancements
 
 ### Fixed
