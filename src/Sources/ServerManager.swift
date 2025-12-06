@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import AppKit
 
 private struct RingBuffer<Element> {
     private var storage: [Element?]
@@ -245,6 +246,21 @@ class ServerManager {
         authProcess.standardError = errorPipe
         authProcess.standardInput = inputPipe
         
+        // For Copilot, we need to capture the device code from output
+        // Use a reference type to properly capture mutations across closures
+        class OutputCapture { var text = "" }
+        let capture = OutputCapture()
+        
+        if case .copilotLogin = command {
+            outputPipe.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                if let str = String(data: data, encoding: .utf8), !str.isEmpty {
+                    capture.text += str
+                    NSLog("[Auth] Copilot output: %@", str)
+                }
+            }
+        }
+        
         // For Gemini login, automatically send newline to accept default project
         if case .geminiLogin = command {
             DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 3.0) {
@@ -298,18 +314,56 @@ class ServerManager {
                 }
             }
             
-            // Wait briefly to check if process crashes immediately
-            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 1.0) {
+            // Wait briefly to check if process crashes immediately or to capture output
+            let waitTime: TimeInterval = (command == .copilotLogin) ? 2.0 : 1.0
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + waitTime) {
                 if authProcess.isRunning {
-                    // Process is still running after 1 second - browser likely opened
-                    NSLog("[Auth] Process running after 1s, returning success")
+                    // Process is still running - check for Copilot device code
+                    NSLog("[Auth] Process running after wait, returning success")
+                    
+                    // For Copilot, try to extract the device code from output
+                    if case .copilotLogin = command {
+                        // Extract code from output like "enter code: XXXX-XXXX"
+                        if let codeRange = capture.text.range(of: "enter code: "),
+                           let endRange = capture.text[codeRange.upperBound...].range(of: "\n") {
+                            let code = String(capture.text[codeRange.upperBound..<endRange.lowerBound]).trimmingCharacters(in: .whitespaces)
+                            // Copy code without dash to clipboard
+                            let codeWithoutDash = code.replacingOccurrences(of: "-", with: "")
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(codeWithoutDash, forType: .string)
+                            completion(true, "🌐 Browser opened for GitHub authentication.\n\n📋 Code copied to clipboard:\n\n\(code)\n\nJust paste it in the browser!\n\nThe app will automatically detect when you're authenticated.")
+                            return
+                        } else if capture.text.contains("enter code:") {
+                            // Try simpler extraction
+                            let lines = capture.text.components(separatedBy: "\n")
+                            for line in lines {
+                                if line.contains("enter code:") {
+                                    let parts = line.components(separatedBy: "enter code:")
+                                    if parts.count > 1 {
+                                        let code = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+                                        // Copy code without dash to clipboard
+                                        let codeWithoutDash = code.replacingOccurrences(of: "-", with: "")
+                                        NSPasteboard.general.clearContents()
+                                        NSPasteboard.general.setString(codeWithoutDash, forType: .string)
+                                        completion(true, "🌐 Browser opened for GitHub authentication.\n\n📋 Code copied to clipboard:\n\n\(code)\n\nJust paste it in the browser!\n\nThe app will automatically detect when you're authenticated.")
+                                        return
+                                    }
+                                }
+                            }
+                        }
+                        // Fallback if we couldn't extract the code
+                        completion(true, "🌐 Browser opened for GitHub authentication.\n\nCheck your terminal or the opened browser for the device code.\n\nThe app will automatically detect when you're authenticated.")
+                        return
+                    }
+                    
                     completion(true, "🌐 Browser opened for authentication.\n\nPlease complete the login in your browser.\n\nThe app will automatically detect when you're authenticated.")
                 } else {
                     // Process died quickly - check for error
                     let outputData = try? outputPipe.fileHandleForReading.readDataToEndOfFile()
                     let errorData = try? errorPipe.fileHandleForReading.readDataToEndOfFile()
                     
-                    let output = String(data: outputData ?? Data(), encoding: .utf8) ?? ""
+                    var output = String(data: outputData ?? Data(), encoding: .utf8) ?? ""
+                    if output.isEmpty { output = capture.text }
                     let error = String(data: errorData ?? Data(), encoding: .utf8) ?? ""
                     
                     NSLog("[Auth] Process died quickly - output: %@", output.isEmpty ? "(empty)" : String(output.prefix(200)))
@@ -392,7 +446,7 @@ class ServerManager {
     }
 }
 
-enum AuthCommand {
+enum AuthCommand: Equatable {
     case claudeLogin
     case codexLogin
     case copilotLogin

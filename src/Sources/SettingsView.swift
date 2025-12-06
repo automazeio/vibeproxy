@@ -90,9 +90,11 @@ struct SettingsView: View {
     @State private var fileMonitor: DispatchSourceFileSystemObject?
     @State private var showingQwenEmailPrompt = false
     @State private var qwenEmail = ""
+    @State private var pendingRefresh: DispatchWorkItem?
     
-    private enum DisconnectTiming {
+    private enum Timing {
         static let serverRestartDelay: TimeInterval = 0.3
+        static let refreshDebounce: TimeInterval = 0.5
     }
 
     private var appVersion: String {
@@ -346,7 +348,12 @@ struct SettingsView: View {
                 
                 if success {
                     self.authResultSuccess = true
-                    self.authResultMessage = self.successMessage(for: serviceType)
+                    // For Copilot, use the output which contains the device code
+                    if serviceType == .copilot && (output.contains("Code copied") || output.contains("code:")) {
+                        self.authResultMessage = output
+                    } else {
+                        self.authResultMessage = self.successMessage(for: serviceType)
+                    }
                     self.showingAuthResult = true
                 } else {
                     self.authResultSuccess = false
@@ -360,17 +367,17 @@ struct SettingsView: View {
     private func successMessage(for serviceType: ServiceType) -> String {
         switch serviceType {
         case .claude:
-            return "✓ Claude Code authenticated successfully!\n\nPlease complete the authentication in your browser, then the app will automatically detect your credentials."
+            return "🌐 Browser opened for Claude Code authentication.\n\nPlease complete the login in your browser.\n\nThe app will automatically detect your credentials."
         case .codex:
-            return "✓ Codex authenticated successfully!\n\nPlease complete the authentication in your browser, then the app will automatically detect your credentials."
+            return "🌐 Browser opened for Codex authentication.\n\nPlease complete the login in your browser.\n\nThe app will automatically detect your credentials."
         case .copilot:
-            return "✓ GitHub Copilot authentication started!\n\nPlease visit github.com/login/device and enter the code shown in your terminal.\n\nℹ️ Copilot provides access to Claude, GPT, Gemini and other models."
+            return "🌐 GitHub Copilot authentication started!\n\nPlease visit github.com/login/device and enter the code shown.\n\nThe app will automatically detect your credentials."
         case .gemini:
-            return "✓ Gemini authenticated successfully!\n\nPlease complete the authentication in your browser.\n\n⚠️ Note: If you have multiple projects, the default project will be used."
+            return "🌐 Browser opened for Gemini authentication.\n\nPlease complete the login in your browser.\n\n⚠️ Note: If you have multiple projects, the default project will be used."
         case .qwen:
-            return "✓ Qwen authenticated successfully!\n\nPlease complete the authentication in your browser."
+            return "🌐 Browser opened for Qwen authentication.\n\nPlease complete the login in your browser."
         case .antigravity:
-            return "✓ Antigravity authenticated successfully!\n\nPlease complete the authentication in your browser.\n\nℹ️ Antigravity provides unified access to multiple AI models."
+            return "🌐 Browser opened for Antigravity authentication.\n\nPlease complete the login in your browser."
         }
     }
     
@@ -412,7 +419,7 @@ struct SettingsView: View {
             self.showingAuthResult = true
             
             if wasRunning {
-                DispatchQueue.main.asyncAfter(deadline: .now() + DisconnectTiming.serverRestartDelay) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + Timing.serverRestartDelay) {
                     self.serverManager.start { _ in }
                 }
             }
@@ -440,10 +447,15 @@ struct SettingsView: View {
             queue: DispatchQueue.main
         )
         
-        let manager = authManager
-        source.setEventHandler {
-            NSLog("[FileMonitor] Auth directory changed - refreshing status")
-            manager.checkAuthStatus()
+        source.setEventHandler { [self] in
+            // Debounce rapid file changes to prevent UI flashing
+            pendingRefresh?.cancel()
+            let workItem = DispatchWorkItem {
+                NSLog("[FileMonitor] Auth directory changed - refreshing status")
+                authManager.checkAuthStatus()
+            }
+            pendingRefresh = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + Timing.refreshDebounce, execute: workItem)
         }
         
         source.setCancelHandler {
@@ -455,6 +467,7 @@ struct SettingsView: View {
     }
     
     private func stopMonitoringAuthDirectory() {
+        pendingRefresh?.cancel()
         fileMonitor?.cancel()
         fileMonitor = nil
     }
