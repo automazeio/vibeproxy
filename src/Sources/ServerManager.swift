@@ -226,6 +226,8 @@ class ServerManager {
             authProcess.arguments = ["--config", configPath, "-claude-login"]
         case .codexLogin:
             authProcess.arguments = ["--config", configPath, "-codex-login"]
+        case .copilotLogin:
+            authProcess.arguments = ["--config", configPath, "-copilot-login"]
         case .geminiLogin:
             authProcess.arguments = ["--config", configPath, "-login"]
         case .qwenLogin(let email):
@@ -393,6 +395,7 @@ class ServerManager {
 enum AuthCommand {
     case claudeLogin
     case codexLogin
+    case copilotLogin
     case geminiLogin
     case qwenLogin(email: String)
     case antigravityLogin

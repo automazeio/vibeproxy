@@ -1,15 +1,89 @@
 import SwiftUI
 import ServiceManagement
 
+/// A row displaying a service with its connected accounts and add button
+struct ServiceRow: View {
+    let serviceType: ServiceType
+    let iconName: String
+    let accounts: [AuthAccount]
+    let isAuthenticating: Bool
+    let helpText: String?
+    let onConnect: () -> Void
+    let onDisconnect: (AuthAccount) -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                if let nsImage = IconCatalog.shared.image(named: iconName, resizedTo: NSSize(width: 20, height: 20), template: true) {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .renderingMode(.template)
+                        .frame(width: 20, height: 20)
+                }
+                Text(serviceType.displayName)
+                    .fontWeight(.medium)
+                Spacer()
+                if isAuthenticating {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Button("Add Account") {
+                        onConnect()
+                    }
+                    .controlSize(.small)
+                }
+            }
+            
+            // Show connected accounts
+            if !accounts.isEmpty {
+                ForEach(accounts) { account in
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(account.isExpired ? Color.orange : Color.green)
+                            .frame(width: 6, height: 6)
+                        Text(account.displayName)
+                            .font(.caption)
+                            .foregroundColor(account.isExpired ? .orange : .secondary)
+                        if account.isExpired {
+                            Text("(expired)")
+                                .font(.caption2)
+                                .foregroundColor(.orange)
+                        }
+                        Spacer()
+                        Button("Remove") {
+                            onDisconnect(account)
+                        }
+                        .font(.caption)
+                        .controlSize(.small)
+                    }
+                    .padding(.leading, 28)
+                }
+                
+                // Show account count summary
+                let activeCount = accounts.filter { !$0.isExpired }.count
+                if accounts.count > 1 {
+                    Text("\(activeCount) active account\(activeCount == 1 ? "" : "s") • Auto-failover enabled")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .padding(.leading, 28)
+                }
+            } else {
+                Text("No accounts connected")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.leading, 28)
+            }
+        }
+        .padding(.vertical, 4)
+        .help(helpText ?? "")
+    }
+}
+
 struct SettingsView: View {
     @ObservedObject var serverManager: ServerManager
     @StateObject private var authManager = AuthManager()
     @State private var launchAtLogin = false
-    @State private var isAuthenticatingClaude = false
-    @State private var isAuthenticatingCodex = false
-    @State private var isAuthenticatingGemini = false
-    @State private var isAuthenticatingQwen = false
-    @State private var isAuthenticatingAntigravity = false
+    @State private var authenticatingService: ServiceType? = nil
     @State private var showingAuthResult = false
     @State private var authResultMessage = ""
     @State private var authResultSuccess = false
@@ -21,7 +95,6 @@ struct SettingsView: View {
         static let serverRestartDelay: TimeInterval = 0.3
     }
 
-    // Get app version from Info.plist
     private var appVersion: String {
         if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
             return "v\(version)"
@@ -70,222 +143,65 @@ struct SettingsView: View {
                 }
 
                 Section("Services") {
-                HStack {
-                    if let nsImage = IconCatalog.shared.image(named: "icon-antigravity.png", resizedTo: NSSize(width: 20, height: 20), template: true) {
-                        Image(nsImage: nsImage)
-                            .resizable()
-                            .renderingMode(.template)
-                            .frame(width: 20, height: 20)
-                    }
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Antigravity")
-                        if authManager.antigravityStatus.isAuthenticated {
-                            Text(authManager.antigravityStatus.email ?? "Connected")
-                                .font(.caption2)
-                                .foregroundColor(authManager.antigravityStatus.isExpired ? .red : .green)
-                            if authManager.antigravityStatus.isExpired {
-                                Text("(expired)")
-                                    .font(.caption2)
-                                    .foregroundColor(.red)
-                            }
-                        }
-                    }
-                    Spacer()
-                    if isAuthenticatingAntigravity {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        if authManager.antigravityStatus.isAuthenticated {
-                            if authManager.antigravityStatus.isExpired {
-                                Button("Reconnect") {
-                                    connectAntigravity()
-                                }
-                            } else {
-                                Button("Disconnect") {
-                                    disconnectAntigravity()
-                                }
-                            }
-                        } else {
-                            Button("Connect") {
-                                connectAntigravity()
-                            }
-                        }
-                    }
-                }
-                .help("Antigravity is a Google-hosted service that provides OAuth-based access to various AI models, including Gemini and Claude. One login gives you access to multiple AI services.")
-
-                HStack {
-                    if let nsImage = IconCatalog.shared.image(named: "icon-claude.png", resizedTo: NSSize(width: 20, height: 20), template: true) {
-                        Image(nsImage: nsImage)
-                            .resizable()
-                            .renderingMode(.template)
-                            .frame(width: 20, height: 20)
-                    }
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Claude Code")
-                        if authManager.claudeStatus.isAuthenticated {
-                            Text(authManager.claudeStatus.email ?? "Connected")
-                                .font(.caption2)
-                                .foregroundColor(authManager.claudeStatus.isExpired ? .red : .green)
-                            if authManager.claudeStatus.isExpired {
-                                Text("(expired)")
-                                    .font(.caption2)
-                                    .foregroundColor(.red)
-                            }
-                        }
-                    }
-                    Spacer()
-                    if isAuthenticatingClaude {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        if authManager.claudeStatus.isAuthenticated {
-                            if authManager.claudeStatus.isExpired {
-                                Button("Reconnect") {
-                                    connectClaudeCode()
-                                }
-                            } else {
-                                Button("Disconnect") {
-                                    disconnectClaudeCode()
-                                }
-                            }
-                        } else {
-                            Button("Connect") {
-                                connectClaudeCode()
-                            }
-                        }
-                    }
-                }
-
-                HStack {
-                    if let nsImage = IconCatalog.shared.image(named: "icon-codex.png", resizedTo: NSSize(width: 20, height: 20), template: true) {
-                        Image(nsImage: nsImage)
-                            .resizable()
-                            .renderingMode(.template)
-                            .frame(width: 20, height: 20)
-                    }
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Codex")
-                        if authManager.codexStatus.isAuthenticated {
-                            Text(authManager.codexStatus.email ?? "Connected")
-                                .font(.caption2)
-                                .foregroundColor(authManager.codexStatus.isExpired ? .red : .green)
-                            if authManager.codexStatus.isExpired {
-                                Text("(expired)")
-                                    .font(.caption2)
-                                    .foregroundColor(.red)
-                            }
-                        }
-                    }
-                    Spacer()
-                    if isAuthenticatingCodex {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        if authManager.codexStatus.isAuthenticated {
-                            if authManager.codexStatus.isExpired {
-                                Button("Reconnect") {
-                                    connectCodex()
-                                }
-                            } else {
-                                Button("Disconnect") {
-                                    disconnectCodex()
-                                }
-                            }
-                        } else {
-                            Button("Connect") {
-                                connectCodex()
-                            }
-                        }
-                    }
-                }
-
-                HStack {
-                    if let nsImage = IconCatalog.shared.image(named: "icon-gemini.png", resizedTo: NSSize(width: 20, height: 20), template: true) {
-                        Image(nsImage: nsImage)
-                            .resizable()
-                            .renderingMode(.template)
-                            .frame(width: 20, height: 20)
-                    }
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Gemini")
-                        if authManager.geminiStatus.isAuthenticated {
-                            Text(authManager.geminiStatus.email ?? "Connected")
-                                .font(.caption2)
-                                .foregroundColor(authManager.geminiStatus.isExpired ? .red : .green)
-                            if authManager.geminiStatus.isExpired {
-                                Text("(expired)")
-                                    .font(.caption2)
-                                    .foregroundColor(.red)
-                            }
-                        }
-                    }
-                    Spacer()
-                    if isAuthenticatingGemini {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        if authManager.geminiStatus.isAuthenticated {
-                            if authManager.geminiStatus.isExpired {
-                                Button("Reconnect") {
-                                    connectGemini()
-                                }
-                            } else {
-                                Button("Disconnect") {
-                                    disconnectGemini()
-                                }
-                            }
-                        } else {
-                            Button("Connect") {
-                                connectGemini()
-                            }
-                        }
-                    }
-                }
-                .help("⚠️ Note: If you're an existing Gemini user with multiple projects, authentication will use your default project. Set your desired project as default in Google AI Studio before connecting.")
-
-                HStack {
-                    if let nsImage = IconCatalog.shared.image(named: "icon-qwen.png", resizedTo: NSSize(width: 20, height: 20), template: true) {
-                        Image(nsImage: nsImage)
-                            .resizable()
-                            .renderingMode(.template)
-                            .frame(width: 20, height: 20)
-                    }
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Qwen")
-                        if authManager.qwenStatus.isAuthenticated {
-                            Text(authManager.qwenStatus.email ?? "Connected")
-                                .font(.caption2)
-                                .foregroundColor(authManager.qwenStatus.isExpired ? .red : .green)
-                            if authManager.qwenStatus.isExpired {
-                                Text("(expired)")
-                                    .font(.caption2)
-                                    .foregroundColor(.red)
-                            }
-                        }
-                    }
-                    Spacer()
-                    if isAuthenticatingQwen {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        if authManager.qwenStatus.isAuthenticated {
-                            if authManager.qwenStatus.isExpired {
-                                Button("Reconnect") {
-                                    connectQwen()
-                                }
-                            } else {
-                                Button("Disconnect") {
-                                    disconnectQwen()
-                                }
-                            }
-                        } else {
-                            Button("Connect") {
-                                connectQwen()
-                            }
-                        }
-                    }
-                }
+                    ServiceRow(
+                        serviceType: .antigravity,
+                        iconName: "icon-antigravity.png",
+                        accounts: authManager.accounts(for: .antigravity),
+                        isAuthenticating: authenticatingService == .antigravity,
+                        helpText: "Antigravity provides OAuth-based access to various AI models including Gemini and Claude. One login gives you access to multiple AI services.",
+                        onConnect: { connectService(.antigravity) },
+                        onDisconnect: { account in disconnectAccount(account) }
+                    )
+                    
+                    ServiceRow(
+                        serviceType: .claude,
+                        iconName: "icon-claude.png",
+                        accounts: authManager.accounts(for: .claude),
+                        isAuthenticating: authenticatingService == .claude,
+                        helpText: nil,
+                        onConnect: { connectService(.claude) },
+                        onDisconnect: { account in disconnectAccount(account) }
+                    )
+                    
+                    ServiceRow(
+                        serviceType: .codex,
+                        iconName: "icon-codex.png",
+                        accounts: authManager.accounts(for: .codex),
+                        isAuthenticating: authenticatingService == .codex,
+                        helpText: nil,
+                        onConnect: { connectService(.codex) },
+                        onDisconnect: { account in disconnectAccount(account) }
+                    )
+                    
+                    ServiceRow(
+                        serviceType: .copilot,
+                        iconName: "icon-copilot.png",
+                        accounts: authManager.accounts(for: .copilot),
+                        isAuthenticating: authenticatingService == .copilot,
+                        helpText: "GitHub Copilot provides access to Claude, GPT, Gemini and other models via your Copilot subscription.",
+                        onConnect: { connectService(.copilot) },
+                        onDisconnect: { account in disconnectAccount(account) }
+                    )
+                    
+                    ServiceRow(
+                        serviceType: .gemini,
+                        iconName: "icon-gemini.png",
+                        accounts: authManager.accounts(for: .gemini),
+                        isAuthenticating: authenticatingService == .gemini,
+                        helpText: "⚠️ Note: If you're an existing Gemini user with multiple projects, authentication will use your default project. Set your desired project as default in Google AI Studio before connecting.",
+                        onConnect: { connectService(.gemini) },
+                        onDisconnect: { account in disconnectAccount(account) }
+                    )
+                    
+                    ServiceRow(
+                        serviceType: .qwen,
+                        iconName: "icon-qwen.png",
+                        accounts: authManager.accounts(for: .qwen),
+                        isAuthenticating: authenticatingService == .qwen,
+                        helpText: nil,
+                        onConnect: { showingQwenEmailPrompt = true },
+                        onDisconnect: { account in disconnectAccount(account) }
+                    )
                 }
             }
             .formStyle(.grouped)
@@ -293,7 +209,7 @@ struct SettingsView: View {
             Spacer()
                 .frame(height: 12)
 
-            // Footer outside Form
+            // Footer
             VStack(spacing: 4) {
                 HStack(spacing: 4) {
                     Text("VibeProxy \(appVersion) was made possible thanks to")
@@ -304,11 +220,7 @@ struct SettingsView: View {
                         .underline()
                         .foregroundColor(.secondary)
                         .onHover { inside in
-                            if inside {
-                                NSCursor.pointingHand.push()
-                            } else {
-                                NSCursor.pop()
-                            }
+                            if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                         }
                     Text("|")
                         .font(.caption)
@@ -327,11 +239,7 @@ struct SettingsView: View {
                         .underline()
                         .foregroundColor(.secondary)
                         .onHover { inside in
-                            if inside {
-                                NSCursor.pointingHand.push()
-                            } else {
-                                NSCursor.pop()
-                            }
+                            if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                         }
                     Text("All rights reserved.")
                         .font(.caption)
@@ -341,16 +249,12 @@ struct SettingsView: View {
                 Link("Report an issue", destination: URL(string: "https://github.com/automazeio/vibeproxy/issues")!)
                     .font(.caption)
                     .onHover { inside in
-                        if inside {
-                            NSCursor.pointingHand.push()
-                        } else {
-                            NSCursor.pop()
-                        }
+                        if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                     }
             }
             .padding(.bottom, 12)
         }
-        .frame(width: 480, height: 540)
+        .frame(width: 480, height: 580)
         .sheet(isPresented: $showingQwenEmailPrompt) {
             VStack(spacing: 16) {
                 Text("Qwen Account Email")
@@ -392,6 +296,8 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - Actions
+    
     private func openAuthFolder() {
         let authDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cli-proxy-api")
         NSWorkspace.shared.open(authDir)
@@ -416,21 +322,30 @@ struct SettingsView: View {
             launchAtLogin = SMAppService.mainApp.status == .enabled
         }
     }
-
-    private func connectClaudeCode() {
-        isAuthenticatingClaude = true
-        NSLog("[SettingsView] Starting Claude Code authentication")
-
-        serverManager.runAuthCommand(.claudeLogin) { success, output in
+    
+    private func connectService(_ serviceType: ServiceType) {
+        authenticatingService = serviceType
+        NSLog("[SettingsView] Starting %@ authentication", serviceType.displayName)
+        
+        let command: AuthCommand
+        switch serviceType {
+        case .claude: command = .claudeLogin
+        case .codex: command = .codexLogin
+        case .copilot: command = .copilotLogin
+        case .gemini: command = .geminiLogin
+        case .qwen: return // handled separately with email prompt
+        case .antigravity: command = .antigravityLogin
+        }
+        
+        serverManager.runAuthCommand(command) { success, output in
             NSLog("[SettingsView] Auth completed - success: %d, output: %@", success, output)
             DispatchQueue.main.async {
-                self.isAuthenticatingClaude = false
-
+                self.authenticatingService = nil
+                
                 if success {
                     self.authResultSuccess = true
-                    self.authResultMessage = "✓ Claude Code authenticated successfully!\n\nPlease complete the authentication in your browser, then the app will automatically detect your credentials."
+                    self.authResultMessage = self.successMessage(for: serviceType)
                     self.showingAuthResult = true
-                    // File monitor will automatically update the status
                 } else {
                     self.authResultSuccess = false
                     self.authResultMessage = "Authentication failed. Please check if the browser opened and try again.\n\nDetails: \(output.isEmpty ? "No output from authentication process" : output)"
@@ -439,253 +354,108 @@ struct SettingsView: View {
             }
         }
     }
-
-    private func disconnectClaudeCode() {
-        isAuthenticatingClaude = true
-        performDisconnect(for: .claude) { success, message in
-            self.isAuthenticatingClaude = false
-            self.authResultSuccess = success
-            self.authResultMessage = message
-            self.showingAuthResult = true
+    
+    private func successMessage(for serviceType: ServiceType) -> String {
+        switch serviceType {
+        case .claude:
+            return "✓ Claude Code authenticated successfully!\n\nPlease complete the authentication in your browser, then the app will automatically detect your credentials."
+        case .codex:
+            return "✓ Codex authenticated successfully!\n\nPlease complete the authentication in your browser, then the app will automatically detect your credentials."
+        case .copilot:
+            return "✓ GitHub Copilot authentication started!\n\nPlease visit github.com/login/device and enter the code shown in your terminal.\n\nℹ️ Copilot provides access to Claude, GPT, Gemini and other models."
+        case .gemini:
+            return "✓ Gemini authenticated successfully!\n\nPlease complete the authentication in your browser.\n\n⚠️ Note: If you have multiple projects, the default project will be used."
+        case .qwen:
+            return "✓ Qwen authenticated successfully!\n\nPlease complete the authentication in your browser."
+        case .antigravity:
+            return "✓ Antigravity authenticated successfully!\n\nPlease complete the authentication in your browser.\n\nℹ️ Antigravity provides unified access to multiple AI models."
         }
     }
-
-    private func connectCodex() {
-        isAuthenticatingCodex = true
-        NSLog("[SettingsView] Starting Codex authentication")
-
-        serverManager.runAuthCommand(.codexLogin) { success, output in
-            NSLog("[SettingsView] Auth completed - success: %d, output: %@", success, output)
-            DispatchQueue.main.async {
-                self.isAuthenticatingCodex = false
-
-                if success {
-                    self.authResultSuccess = true
-                    self.authResultMessage = "✓ Codex authenticated successfully!\n\nPlease complete the authentication in your browser, then the app will automatically detect your credentials."
-                    self.showingAuthResult = true
-                    // File monitor will automatically update the status
-                } else {
-                    self.authResultSuccess = false
-                    self.authResultMessage = "Authentication failed. Please check if the browser opened and try again.\n\nDetails: \(output.isEmpty ? "No output from authentication process" : output)"
-                    self.showingAuthResult = true
-                }
-            }
-        }
-    }
-
-    private func disconnectCodex() {
-        isAuthenticatingCodex = true
-        performDisconnect(for: .codex) { success, message in
-            self.isAuthenticatingCodex = false
-            self.authResultSuccess = success
-            self.authResultMessage = message
-            self.showingAuthResult = true
-        }
-    }
-
-    private func connectGemini() {
-        isAuthenticatingGemini = true
-        NSLog("[SettingsView] Starting Gemini authentication")
-
-        serverManager.runAuthCommand(.geminiLogin) { success, output in
-            NSLog("[SettingsView] Auth completed - success: %d, output: %@", success, output)
-            DispatchQueue.main.async {
-                self.isAuthenticatingGemini = false
-
-                if success {
-                    self.authResultSuccess = true
-                    self.authResultMessage = "✓ Gemini authenticated successfully!\n\nPlease complete the authentication in your browser, then the app will automatically detect your credentials.\n\n⚠️ Note: If you have multiple Gemini projects, the default project will be used. You can change your default project in Google AI Studio if needed."
-                    self.showingAuthResult = true
-                    // File monitor will automatically update the status
-                } else {
-                    self.authResultSuccess = false
-                    self.authResultMessage = "Authentication failed. Please check if the browser opened and try again.\n\nDetails: \(output.isEmpty ? "No output from authentication process" : output)"
-                    self.showingAuthResult = true
-                }
-            }
-        }
-    }
-
-    private func disconnectGemini() {
-        isAuthenticatingGemini = true
-        performDisconnect(for: .gemini) { success, message in
-            self.isAuthenticatingGemini = false
-            self.authResultSuccess = success
-            self.authResultMessage = message
-            self.showingAuthResult = true
-        }
-    }
-
-    private func connectQwen() {
-        showingQwenEmailPrompt = true
-    }
-
+    
     private func startQwenAuth(email: String) {
-        isAuthenticatingQwen = true
+        authenticatingService = .qwen
         NSLog("[SettingsView] Starting Qwen authentication with email: %@", email)
-
+        
         serverManager.runAuthCommand(.qwenLogin(email: email)) { success, output in
             NSLog("[SettingsView] Auth completed - success: %d, output: %@", success, output)
             DispatchQueue.main.async {
-                self.isAuthenticatingQwen = false
-
+                self.authenticatingService = nil
+                self.qwenEmail = ""
+                
                 if success {
                     self.authResultSuccess = true
-                    self.authResultMessage = "✓ Qwen authenticated successfully!\n\nPlease complete the authentication in your browser, then the app will automatically submit your email and detect your credentials."
+                    self.authResultMessage = "✓ Qwen authenticated successfully!\n\nPlease complete the authentication in your browser."
                     self.showingAuthResult = true
-                    // File monitor will automatically update the status
                 } else {
                     self.authResultSuccess = false
-                    self.authResultMessage = "Authentication failed. Please check if the browser opened and try again.\n\nDetails: \(output.isEmpty ? "No output from authentication process" : output)"
+                    self.authResultMessage = "Authentication failed.\n\nDetails: \(output.isEmpty ? "No output" : output)"
                     self.showingAuthResult = true
                 }
             }
         }
     }
-
-    private func disconnectQwen() {
-        isAuthenticatingQwen = true
-        performDisconnect(for: .qwen) { success, message in
-            self.isAuthenticatingQwen = false
-            self.authResultSuccess = success
-            self.authResultMessage = message
+    
+    private func disconnectAccount(_ account: AuthAccount) {
+        let wasRunning = serverManager.isRunning
+        
+        // Stop server, delete file, restart
+        let cleanup = {
+            if self.authManager.deleteAccount(account) {
+                self.authResultSuccess = true
+                self.authResultMessage = "✓ Removed \(account.displayName) from \(account.type.displayName)"
+            } else {
+                self.authResultSuccess = false
+                self.authResultMessage = "Failed to remove account"
+            }
             self.showingAuthResult = true
-        }
-    }
-
-    private func connectAntigravity() {
-        isAuthenticatingAntigravity = true
-        NSLog("[SettingsView] Starting Antigravity authentication")
-
-        serverManager.runAuthCommand(.antigravityLogin) { success, output in
-            NSLog("[SettingsView] Auth completed - success: %d, output: %@", success, output)
-            DispatchQueue.main.async {
-                self.isAuthenticatingAntigravity = false
-
-                if success {
-                    self.authResultSuccess = true
-                    self.authResultMessage = "✓ Antigravity authenticated successfully!\n\nPlease complete the authentication in your browser, then the app will automatically detect your credentials.\n\nℹ️ Antigravity provides unified access to multiple AI models (Gemini, Claude, and more) through a single OAuth login."
-                    self.showingAuthResult = true
-                    // File monitor will automatically update the status
-                } else {
-                    self.authResultSuccess = false
-                    self.authResultMessage = "Authentication failed. Please check if the browser opened and try again.\n\nDetails: \(output.isEmpty ? "No output from authentication process" : output)"
-                    self.showingAuthResult = true
+            
+            if wasRunning {
+                DispatchQueue.main.asyncAfter(deadline: .now() + DisconnectTiming.serverRestartDelay) {
+                    self.serverManager.start { _ in }
                 }
             }
         }
-    }
-
-    private func disconnectAntigravity() {
-        isAuthenticatingAntigravity = true
-        performDisconnect(for: .antigravity) { success, message in
-            self.isAuthenticatingAntigravity = false
-            self.authResultSuccess = success
-            self.authResultMessage = message
-            self.showingAuthResult = true
+        
+        if wasRunning {
+            serverManager.stop { cleanup() }
+        } else {
+            cleanup()
         }
     }
-
+    
+    // MARK: - File Monitoring
+    
     private func startMonitoringAuthDirectory() {
         let authDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cli-proxy-api")
-
-        // Create directory if it doesn't exist
         try? FileManager.default.createDirectory(at: authDir, withIntermediateDirectories: true)
-
+        
         let fileDescriptor = open(authDir.path, O_EVTONLY)
         guard fileDescriptor >= 0 else { return }
-
+        
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fileDescriptor,
             eventMask: [.write, .delete, .rename],
             queue: DispatchQueue.main
         )
-
+        
         let manager = authManager
         source.setEventHandler {
-            // Refresh auth status when directory changes
             NSLog("[FileMonitor] Auth directory changed - refreshing status")
             manager.checkAuthStatus()
         }
-
+        
         source.setCancelHandler {
             close(fileDescriptor)
         }
-
+        
         source.resume()
         fileMonitor = source
     }
-
+    
     private func stopMonitoringAuthDirectory() {
         fileMonitor?.cancel()
         fileMonitor = nil
     }
-
-    private func performDisconnect(for serviceType: ServiceType, completion: @escaping (Bool, String) -> Void) {
-        let authDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cli-proxy-api")
-        let wasRunning = serverManager.isRunning
-        let manager = serverManager
-
-        let cleanupWork: () -> Void = {
-            DispatchQueue.global(qos: .userInitiated).async {
-                var disconnectResult: (Bool, String)
-                
-                do {
-                    if let enumerator = FileManager.default.enumerator(
-                        at: authDir,
-                        includingPropertiesForKeys: [.isRegularFileKey],
-                        options: [.skipsHiddenFiles]
-                    ) {
-                        var targetURL: URL?
-                        
-                        for case let fileURL as URL in enumerator {
-                            guard fileURL.pathExtension == "json" else { continue }
-                            
-                            let data = try Data(contentsOf: fileURL, options: [.mappedIfSafe])
-                            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                                  let type = json["type"] as? String,
-                                  type.lowercased() == serviceType.rawValue else {
-                                continue
-                            }
-                            
-                            targetURL = fileURL
-                            break
-                        }
-                        
-                        if let targetURL = targetURL {
-                            try FileManager.default.removeItem(at: targetURL)
-                            NSLog("[Disconnect] Deleted auth file: %@", targetURL.path)
-                            disconnectResult = (true, "\(serviceType.displayName) disconnected successfully")
-                        } else {
-                            disconnectResult = (false, "No \(serviceType.displayName) credentials were found.")
-                        }
-                    } else {
-                        disconnectResult = (false, "Unable to access credentials directory.")
-                    }
-                } catch {
-                    disconnectResult = (false, "Failed to disconnect \(serviceType.displayName): \(error.localizedDescription)")
-                }
-                
-                DispatchQueue.main.async {
-                    completion(disconnectResult.0, disconnectResult.1)
-                    if wasRunning {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + DisconnectTiming.serverRestartDelay) {
-                            manager.start { _ in }
-                        }
-                    }
-                }
-            }
-        }
-
-        if wasRunning {
-            serverManager.stop {
-                cleanupWork()
-            }
-        } else {
-            cleanupWork()
-        }
-    }
 }
 
-// Make managers observable
 extension ServerManager: ObservableObject {}
