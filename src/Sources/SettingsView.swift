@@ -333,7 +333,9 @@ struct SettingsView: View {
         case .codex: command = .codexLogin
         case .copilot: command = .copilotLogin
         case .gemini: command = .geminiLogin
-        case .qwen: return // handled separately with email prompt
+        case .qwen:
+            authenticatingService = nil
+            return // handled separately with email prompt
         case .antigravity: command = .antigravityLogin
         }
         
