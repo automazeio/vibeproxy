@@ -383,7 +383,7 @@ struct SettingsView: View {
     
     private func startQwenAuth(email: String) {
         authenticatingService = .qwen
-        NSLog("[SettingsView] Starting Qwen authentication with email: %@", email)
+        NSLog("[SettingsView] Starting Qwen authentication")
         
         serverManager.runAuthCommand(.qwenLogin(email: email)) { success, output in
             NSLog("[SettingsView] Auth completed - success: %d, output: %@", success, output)
@@ -393,7 +393,7 @@ struct SettingsView: View {
                 
                 if success {
                     self.authResultSuccess = true
-                    self.authResultMessage = "✓ Qwen authenticated successfully!\n\nPlease complete the authentication in your browser."
+                    self.authResultMessage = self.successMessage(for: .qwen)
                     self.showingAuthResult = true
                 } else {
                     self.authResultSuccess = false
