@@ -5,7 +5,7 @@ final class IconCatalog {
     
     private let cacheLock = NSLock()
     private var cache: [String: NSImage] = [:]
-    private let bundle = Bundle.main
+    private let bundles: [Bundle] = [Bundle.main, Bundle.module]
     
     private init() {}
     
@@ -19,11 +19,20 @@ final class IconCatalog {
         }
         cacheLock.unlock()
         
-        guard let resourcePath = bundle.resourcePath else { return nil }
-        let iconPath = (resourcePath as NSString).appendingPathComponent(name)
-        guard let baseImage = NSImage(contentsOfFile: iconPath) else { return nil }
+        let baseImage: NSImage? = {
+            for bundle in bundles {
+                if let resourcePath = bundle.resourcePath {
+                    let iconPath = (resourcePath as NSString).appendingPathComponent(name)
+                    if let image = NSImage(contentsOfFile: iconPath) {
+                        return image
+                    }
+                }
+            }
+            return nil
+        }()
+        guard let resolvedImage = baseImage else { return nil }
         
-        let image = baseImage.copy() as? NSImage ?? baseImage
+        let image = resolvedImage.copy() as? NSImage ?? resolvedImage
         if let size = size {
             image.size = size
         }
