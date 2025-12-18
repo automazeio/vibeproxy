@@ -10,7 +10,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
     weak var settingsWindow: NSWindow?
     var serverManager: ServerManager!
     var thinkingProxy: ThinkingProxy!
-    private let notificationCenter = UNUserNotificationCenter.current()
+    private let notificationCenter: UNUserNotificationCenter? = {
+        // UNUserNotificationCenter requires a real app bundle; skip when running via swift run.
+        guard Bundle.main.bundleIdentifier != nil else { return nil }
+        return UNUserNotificationCenter.current()
+    }()
     private var notificationPermissionGranted = false
     private let updaterController: SPUStandardUpdaterController
     
@@ -25,6 +29,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
 
         // Initialize managers
         serverManager = ServerManager()
+        serverManager.onLogUpdate = { logs in
+            if let last = logs.last {
+                NSLog("[Server] %@", last)
+            }
+        }
         thinkingProxy = ThinkingProxy()
         
         // Warm commonly used icons to avoid first-use disk hits
@@ -64,6 +73,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
     }
     
     private func configureNotifications() {
+        guard let notificationCenter = notificationCenter else {
+            NSLog("[Notifications] Skipping notification setup (no bundle identifier)")
+            return
+        }
         notificationCenter.delegate = self
         notificationCenter.requestAuthorization(options: [.alert, .sound]) { [weak self] granted, error in
             if let error = error {
@@ -158,7 +171,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
         settingsWindow = window
     }
     
-    func windowDidClose(_ notification: Notification) {
+    func windowWillClose(_ notification: Notification) {
         if notification.object as? NSWindow === settingsWindow {
             settingsWindow = nil
         }
@@ -267,6 +280,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
     }
 
     func showNotification(title: String, body: String) {
+        guard notificationPermissionGranted, let notificationCenter = notificationCenter else { return }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body

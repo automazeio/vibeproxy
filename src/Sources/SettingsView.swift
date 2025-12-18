@@ -216,7 +216,7 @@ struct SettingsView: View {
                     }
                 }
 
-                Section("Services") {
+                Section {
                     ServiceRow(
                         serviceType: .antigravity,
                         iconName: "icon-antigravity.png",
@@ -282,6 +282,18 @@ struct SettingsView: View {
                         onDisconnect: { account in disconnectAccount(account) },
                         onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
                     )
+                } header: {
+                    HStack(spacing: 6) {
+                        Text("Services")
+                        Spacer()
+                        Button {
+                            ModelCatalogWindow.show()
+                        } label: {
+                            Image(systemName: "info.circle")
+                        }
+                        .buttonStyle(.plain)
+                        .help("View available models per provider")
+                    }
                 }
             }
             .formStyle(.grouped)

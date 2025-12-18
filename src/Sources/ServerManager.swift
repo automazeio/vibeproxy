@@ -84,24 +84,25 @@ class ServerManager: ObservableObject {
         // Clean up any orphaned processes from previous crashes
         killOrphanedProcesses()
         
-        // Use bundled binary from app bundle
-        guard let resourcePath = Bundle.main.resourcePath else {
-            addLog("❌ Error: Could not find resource path")
-            completion(false)
-            return
+        // Locate bundled resources (works for packaged app and `swift run`)
+        let bundles = [Bundle.main, Bundle.module]
+        var bundledPath: String?
+        var configPath: String?
+
+        for bundle in bundles {
+            guard let base = bundle.resourcePath else { continue }
+            let binaryCandidate = (base as NSString).appendingPathComponent("cli-proxy-api-plus")
+            let configCandidate = (base as NSString).appendingPathComponent("config.yaml")
+            if FileManager.default.fileExists(atPath: binaryCandidate),
+               FileManager.default.fileExists(atPath: configCandidate) {
+                bundledPath = binaryCandidate
+                configPath = configCandidate
+                break
+            }
         }
-        
-        let bundledPath = (resourcePath as NSString).appendingPathComponent("cli-proxy-api-plus")
-        guard FileManager.default.fileExists(atPath: bundledPath) else {
-            addLog("❌ Error: cli-proxy-api-plus binary not found at \(bundledPath)")
-            completion(false)
-            return
-        }
-        
-        // Use bundled config
-        let configPath = (resourcePath as NSString).appendingPathComponent("config.yaml")
-        guard FileManager.default.fileExists(atPath: configPath) else {
-            addLog("❌ Error: config.yaml not found at \(configPath)")
+
+        guard let bundledPath, let configPath else {
+            addLog("❌ Error: Could not find bundled cli-proxy-api-plus binary and config.yaml")
             completion(false)
             return
         }
@@ -364,12 +365,12 @@ class ServerManager: ObservableObject {
                     completion(true, "🌐 Browser opened for authentication.\n\nPlease complete the login in your browser.\n\nThe app will automatically detect when you're authenticated.")
                 } else {
                     // Process died quickly - check for error
-                    let outputData = try? outputPipe.fileHandleForReading.readDataToEndOfFile()
-                    let errorData = try? errorPipe.fileHandleForReading.readDataToEndOfFile()
+                    let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+                    let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
                     
-                    var output = String(data: outputData ?? Data(), encoding: .utf8) ?? ""
+                    var output = String(data: outputData, encoding: .utf8) ?? ""
                     if output.isEmpty { output = capture.text }
-                    let error = String(data: errorData ?? Data(), encoding: .utf8) ?? ""
+                    let error = String(data: errorData, encoding: .utf8) ?? ""
                     
                     NSLog("[Auth] Process died quickly - output: %@", output.isEmpty ? "(empty)" : String(output.prefix(200)))
                     
