@@ -29,6 +29,11 @@ proxy-url: ""
 # Retry configuration
 request-retry: 3
 
+# Timeout for upstream provider requests
+# Default: 10m. Set to "0" to disable timeout.
+# Important for Extended Thinking requests which may take 5-10+ minutes.
+request-timeout: "10m"
+
 # Quota management
 quota-exceeded:
   switch-project: true
