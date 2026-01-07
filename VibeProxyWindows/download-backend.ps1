@@ -1,5 +1,5 @@
 # VibeProxy Windows - Backend Download Script
-# Downloads the cli-proxy-api.exe binary from GitHub releases
+# Downloads the cli-proxy-api-plus.exe binary from GitHub releases
 
 param(
     [string]$Version = "latest"
@@ -8,7 +8,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $ResourcesDir = Join-Path $PSScriptRoot "VibeProxy\Resources"
-$TargetPath = Join-Path $ResourcesDir "cli-proxy-api.exe"
+$TargetPath = Join-Path $ResourcesDir "cli-proxy-api-plus.exe"
 
 Write-Host "VibeProxy Backend Downloader" -ForegroundColor Cyan
 Write-Host "=============================" -ForegroundColor Cyan
@@ -33,28 +33,28 @@ if ($Version -eq "latest") {
         Write-Host "Latest version: $Version" -ForegroundColor Green
 
         # Find Windows asset
-        $WindowsAsset = $Release.assets | Where-Object { $_.name -like "*windows*" -or $_.name -like "*win*" -or $_.name -eq "cli-proxy-api.exe" }
+        $WindowsAsset = $Release.assets | Where-Object { $_.name -like "*windows*" -or $_.name -like "*win*" -or $_.name -eq "cli-proxy-api-plus.exe" }
 
         if ($WindowsAsset) {
             $DownloadUrl = $WindowsAsset.browser_download_url
         } else {
             # Try common naming patterns
-            $DownloadUrl = "https://github.com/$RepoOwner/$RepoName/releases/download/$Version/cli-proxy-api-windows-amd64.exe"
+            $DownloadUrl = "https://github.com/$RepoOwner/$RepoName/releases/download/$Version/cli-proxy-api-plus-windows-amd64.exe"
         }
     }
     catch {
         Write-Host "Failed to fetch release info: $_" -ForegroundColor Red
         Write-Host "Trying fallback URL..." -ForegroundColor Yellow
-        $DownloadUrl = "https://github.com/$RepoOwner/$RepoName/releases/latest/download/cli-proxy-api-windows-amd64.exe"
+        $DownloadUrl = "https://github.com/$RepoOwner/$RepoName/releases/latest/download/cli-proxy-api-plus-windows-amd64.exe"
     }
 } else {
-    $DownloadUrl = "https://github.com/$RepoOwner/$RepoName/releases/download/$Version/cli-proxy-api-windows-amd64.exe"
+    $DownloadUrl = "https://github.com/$RepoOwner/$RepoName/releases/download/$Version/cli-proxy-api-plus-windows-amd64.exe"
 }
 
 Write-Host "Download URL: $DownloadUrl" -ForegroundColor Cyan
 
 # Download the binary
-Write-Host "Downloading cli-proxy-api.exe..." -ForegroundColor Yellow
+Write-Host "Downloading cli-proxy-api-plus.exe..." -ForegroundColor Yellow
 
 try {
     $ProgressPreference = 'SilentlyContinue'  # Speeds up download
