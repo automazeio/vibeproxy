@@ -1,0 +1,47 @@
+# Server port (CLIProxyAPI runs on 8318, ThinkingProxy forwards from 8317)
+port: 8318
+
+# Bind to localhost only for security (prevents exposure on public IPs)
+host: 127.0.0.1
+
+# Amp CLI integration
+amp-upstream-url: "https://ampcode.com"
+amp-restrict-management-to-localhost: true
+
+# Management API settings
+remote-management:
+  allow-remote: false
+  secret-key: ""  # Leave empty to disable management API
+
+# Authentication directory (stores OAuth tokens)
+auth-dir: "~/.cli-proxy-api"
+
+# Logging configuration
+debug: false
+logging-to-file: false
+
+# Usage statistics
+usage-statistics-enabled: true
+
+# Network proxy (if needed for corporate networks)
+proxy-url: ""
+
+# Retry configuration
+request-retry: 3
+
+# Timeout for upstream provider requests
+# Default: 10m. Set to "0" to disable timeout.
+# Important for Extended Thinking requests which may take 5-10+ minutes.
+request-timeout: "10m"
+
+# Quota management
+quota-exceeded:
+  switch-project: true
+  switch-preview-model: true
+
+# Disable request authentication (Factory handles its own)
+auth:
+  providers: []
+
+# No API keys needed for Claude OAuth
+generative-language-api-key: []

@@ -1,0 +1,75 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net6.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- Assembly Identity -->
+    <AssemblyName>VibeProxy</AssemblyName>
+    <RootNamespace>VibeProxy</RootNamespace>
+
+    <!-- Version Info -->
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <InformationalVersion>1.0.0-windows</InformationalVersion>
+
+    <!-- Product Info -->
+    <Company>VibeProxy</Company>
+    <Product>VibeProxy for Windows</Product>
+    <Description>Extended thinking proxy for AI coding assistants. Adds extended thinking parameters to Claude API requests.</Description>
+    <Copyright>Copyright 2025 VibeProxy Contributors</Copyright>
+    <Authors>VibeProxy Contributors</Authors>
+
+    <!-- Application Settings -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationIcon Condition="Exists('Resources\app-icon.ico')">Resources\app-icon.ico</ApplicationIcon>
+
+    <!-- Repository Info -->
+    <RepositoryUrl>https://github.com/automazeio/vibeproxy</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+
+    <!-- Publishing Settings -->
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Hardcodet.NotifyIcon.Wpf" Version="1.1.0" />
+    <PackageReference Include="System.Text.Json" Version="6.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Backend executable -->
+    <None Update="Resources\cli-proxy-api-plus.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+
+    <!-- Configuration -->
+    <None Update="Resources\config.yaml">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+
+    <!-- Icons (PNG for tray, will be converted to ICO for app) -->
+    <None Update="Resources\*.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+
+    <!-- Glyph icon as embedded resource for Window icon -->
+    <Resource Include="Resources\glyph.png" />
+    <None Update="Resources\*.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <!-- Ensure Resources folder is created on build -->
+  <Target Name="EnsureResourcesFolder" BeforeTargets="Build">
+    <MakeDir Directories="$(OutputPath)Resources" Condition="!Exists('$(OutputPath)Resources')" />
+  </Target>
+
+</Project>

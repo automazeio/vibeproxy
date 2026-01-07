@@ -1,0 +1,43 @@
+# Build outputs
+bin/
+obj/
+
+# User-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# IDE
+.vs/
+.idea/
+*.swp
+*~
+
+# Rider
+.idea/
+
+# VS Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Downloaded backend binary (users should download themselves)
+VibeProxy/Resources/cli-proxy-api*.exe
+
+# Generated ICO files (can be regenerated from PNGs)
+VibeProxy/Resources/*.ico
+
+# NuGet
+*.nupkg
+packages/
+
+# Publish output
+publish/

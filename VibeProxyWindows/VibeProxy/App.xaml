@@ -1,0 +1,12 @@
+<Application x:Class="VibeProxy.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             ShutdownMode="OnExplicitShutdown">
+    <Application.Resources>
+        <!-- Global styles -->
+        <Style x:Key="WindowStyle" TargetType="Window">
+            <Setter Property="Background" Value="#1E1E1E"/>
+            <Setter Property="Foreground" Value="#E0E0E0"/>
+        </Style>
+    </Application.Resources>
+</Application>
