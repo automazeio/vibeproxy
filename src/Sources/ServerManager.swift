@@ -98,10 +98,10 @@ class ServerManager: ObservableObject {
             return
         }
         
-        // Use bundled config
-        let configPath = (resourcePath as NSString).appendingPathComponent("config.yaml")
-        guard FileManager.default.fileExists(atPath: configPath) else {
-            addLog("❌ Error: config.yaml not found at \(configPath)")
+        // Use config path (merged with Z.AI if keys exist)
+        let configPath = getConfigPath()
+        guard !configPath.isEmpty && FileManager.default.fileExists(atPath: configPath) else {
+            addLog("❌ Error: config.yaml not found")
             completion(false)
             return
         }
@@ -245,6 +245,10 @@ class ServerManager: ObservableObject {
             qwenEmail = email
         case .antigravityLogin:
             authProcess.arguments = ["--config", configPath, "-antigravity-login"]
+        case .zaiLogin:
+            // Z.AI uses API key auth handled separately via saveZaiApiKey()
+            completion(false, "Z.AI auth should use saveZaiApiKey() instead")
+            return
         }
         
         // Create pipes for output
@@ -416,6 +420,121 @@ class ServerManager: ObservableObject {
         }
     }
     
+    /// Saves a Z.AI API key to the auth directory
+    func saveZaiApiKey(_ apiKey: String, completion: @escaping (Bool, String) -> Void) {
+        let authDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cli-proxy-api")
+        
+        // Create auth directory if needed
+        do {
+            try FileManager.default.createDirectory(at: authDir, withIntermediateDirectories: true)
+        } catch {
+            completion(false, "Failed to create auth directory: \(error.localizedDescription)")
+            return
+        }
+        
+        // Generate unique filename with masked key for display
+        let keyPreview = String(apiKey.prefix(8)) + "..." + String(apiKey.suffix(4))
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let filename = "zai-\(UUID().uuidString.prefix(8)).json"
+        let filePath = authDir.appendingPathComponent(filename)
+        
+        // Create auth JSON matching the format used by other providers
+        let authData: [String: Any] = [
+            "type": "zai",
+            "email": keyPreview,
+            "api_key": apiKey,
+            "created": timestamp
+        ]
+        
+        do {
+            let jsonData = try JSONSerialization.data(withJSONObject: authData, options: .prettyPrinted)
+            try jsonData.write(to: filePath)
+            addLog("✓ Z.AI API key saved to \(filename)")
+            
+            // Restart server to pick up new config (getConfigPath will merge Z.AI keys)
+            let wasRunning = isRunning
+            if wasRunning {
+                stop { [weak self] in
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        self?.start { _ in }
+                    }
+                }
+            }
+            
+            completion(true, "API key saved successfully")
+        } catch {
+            completion(false, "Failed to save API key: \(error.localizedDescription)")
+        }
+    }
+    
+    /// Returns the config path to use, merging bundled config with Z.AI provider if keys exist
+    func getConfigPath() -> String {
+        guard let resourcePath = Bundle.main.resourcePath else {
+            return ""
+        }
+        
+        let bundledConfigPath = (resourcePath as NSString).appendingPathComponent("config.yaml")
+        let authDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cli-proxy-api")
+        
+        // Check for Z.AI auth files
+        var zaiApiKeys: [String] = []
+        if let files = try? FileManager.default.contentsOfDirectory(at: authDir, includingPropertiesForKeys: nil) {
+            for file in files where file.lastPathComponent.hasPrefix("zai-") && file.pathExtension == "json" {
+                if let data = try? Data(contentsOf: file),
+                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let apiKey = json["api_key"] as? String {
+                    zaiApiKeys.append(apiKey)
+                }
+            }
+        }
+        
+        // If no Z.AI keys, use bundled config
+        guard !zaiApiKeys.isEmpty else {
+            return bundledConfigPath
+        }
+        
+        // Generate merged config with Z.AI provider
+        guard let bundledContent = try? String(contentsOfFile: bundledConfigPath, encoding: .utf8) else {
+            return bundledConfigPath
+        }
+        
+        // Build Z.AI openai-compatibility section
+        var zaiSection = """
+
+# Z.AI GLM Provider (auto-added by VibeProxy)
+openai-compatibility:
+  - name: "zai"
+    base-url: "https://api.z.ai/api/coding/paas/v4"
+    api-key-entries:
+
+"""
+        for key in zaiApiKeys {
+            zaiSection += "      - api-key: \"\(key)\"\n"
+        }
+        zaiSection += """
+    models:
+      - name: "glm-4.7"
+        alias: "glm-4.7"
+      - name: "glm-4-plus"
+        alias: "glm-4-plus"
+      - name: "glm-4-air"
+        alias: "glm-4-air"
+      - name: "glm-4-flash"
+        alias: "glm-4-flash"
+"""
+        
+        let mergedContent = bundledContent + zaiSection
+        let mergedConfigPath = authDir.appendingPathComponent("merged-config.yaml")
+        
+        do {
+            try mergedContent.write(to: mergedConfigPath, atomically: true, encoding: .utf8)
+            return mergedConfigPath.path
+        } catch {
+            NSLog("[ServerManager] Failed to write merged config: %@", error.localizedDescription)
+            return bundledConfigPath
+        }
+    }
+    
     func getLogs() -> [String] {
         return logBuffer.elements()
     }
@@ -471,4 +590,5 @@ enum AuthCommand: Equatable {
     case geminiLogin
     case qwenLogin(email: String)
     case antigravityLogin
+    case zaiLogin(apiKey: String)
 }

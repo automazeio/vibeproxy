@@ -171,6 +171,8 @@ struct SettingsView: View {
     @State private var fileMonitor: DispatchSourceFileSystemObject?
     @State private var showingQwenEmailPrompt = false
     @State private var qwenEmail = ""
+    @State private var showingZaiApiKeyPrompt = false
+    @State private var zaiApiKey = ""
     @State private var pendingRefresh: DispatchWorkItem?
     @State private var expandedRowCount = 0
     
@@ -292,6 +294,17 @@ struct SettingsView: View {
                         onDisconnect: { account in disconnectAccount(account) },
                         onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
                     )
+                    
+                    ServiceRow(
+                        serviceType: .zai,
+                        iconName: "icon-zai.png",
+                        accounts: authManager.accounts(for: .zai),
+                        isAuthenticating: authenticatingService == .zai,
+                        helpText: "Z.AI GLM provides access to GLM-4.7 and other models via API key. Get your key at z.ai/manage-apikey",
+                        onConnect: { showingZaiApiKeyPrompt = true },
+                        onDisconnect: { account in disconnectAccount(account) },
+                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
+                    )
                 }
             }
             .formStyle(.grouped)
@@ -373,6 +386,32 @@ struct SettingsView: View {
             .padding(24)
             .frame(width: 350)
         }
+        .sheet(isPresented: $showingZaiApiKeyPrompt) {
+            VStack(spacing: 16) {
+                Text("Z.AI API Key")
+                    .font(.headline)
+                Text("Enter your Z.AI API key from z.ai/manage-apikey")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                SecureField("sk-...", text: $zaiApiKey)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 300)
+                HStack(spacing: 12) {
+                    Button("Cancel") {
+                        showingZaiApiKeyPrompt = false
+                        zaiApiKey = ""
+                    }
+                    Button("Add Key") {
+                        showingZaiApiKeyPrompt = false
+                        startZaiAuth(apiKey: zaiApiKey)
+                    }
+                    .disabled(zaiApiKey.isEmpty)
+                    .keyboardShortcut(.defaultAction)
+                }
+            }
+            .padding(24)
+            .frame(width: 400)
+        }
         .onAppear {
             authManager.checkAuthStatus()
             checkLaunchAtLogin()
@@ -429,6 +468,9 @@ struct SettingsView: View {
             authenticatingService = nil
             return // handled separately with email prompt
         case .antigravity: command = .antigravityLogin
+        case .zai:
+            authenticatingService = nil
+            return // handled separately with API key prompt
         }
         
         serverManager.runAuthCommand(command) { success, output in
@@ -468,6 +510,8 @@ struct SettingsView: View {
             return "🌐 Browser opened for Qwen authentication.\n\nPlease complete the login in your browser."
         case .antigravity:
             return "🌐 Browser opened for Antigravity authentication.\n\nPlease complete the login in your browser."
+        case .zai:
+            return "✓ Z.AI API key added successfully.\n\nYou can now use GLM models through the proxy."
         }
     }
     
@@ -488,6 +532,30 @@ struct SettingsView: View {
                 } else {
                     self.authResultSuccess = false
                     self.authResultMessage = "Authentication failed.\n\nDetails: \(output.isEmpty ? "No output" : output)"
+                    self.showingAuthResult = true
+                }
+            }
+        }
+    }
+    
+    private func startZaiAuth(apiKey: String) {
+        authenticatingService = .zai
+        NSLog("[SettingsView] Adding Z.AI API key")
+        
+        serverManager.saveZaiApiKey(apiKey) { success, output in
+            NSLog("[SettingsView] Z.AI key save completed - success: %d, output: %@", success, output)
+            DispatchQueue.main.async {
+                self.authenticatingService = nil
+                self.zaiApiKey = ""
+                
+                if success {
+                    self.authResultSuccess = true
+                    self.authResultMessage = self.successMessage(for: .zai)
+                    self.showingAuthResult = true
+                    self.authManager.checkAuthStatus()
+                } else {
+                    self.authResultSuccess = false
+                    self.authResultMessage = "Failed to save API key.\n\nDetails: \(output.isEmpty ? "Unknown error" : output)"
                     self.showingAuthResult = true
                 }
             }
