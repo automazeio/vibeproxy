@@ -245,10 +245,6 @@ class ServerManager: ObservableObject {
             qwenEmail = email
         case .antigravityLogin:
             authProcess.arguments = ["--config", configPath, "-antigravity-login"]
-        case .zaiLogin:
-            // Z.AI uses API key auth handled separately via saveZaiApiKey()
-            completion(false, "Z.AI auth should use saveZaiApiKey() instead")
-            return
         }
         
         // Create pipes for output
@@ -449,6 +445,8 @@ class ServerManager: ObservableObject {
         do {
             let jsonData = try JSONSerialization.data(withJSONObject: authData, options: .prettyPrinted)
             try jsonData.write(to: filePath)
+            // Set secure permissions (0600 - owner read/write only)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: filePath.path)
             addLog("✓ Z.AI API key saved to \(filename)")
             
             // Restart server to pick up new config (getConfigPath will merge Z.AI keys)
@@ -528,6 +526,8 @@ openai-compatibility:
         
         do {
             try mergedContent.write(to: mergedConfigPath, atomically: true, encoding: .utf8)
+            // Set secure permissions (0600 - owner read/write only) since config contains API keys
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: mergedConfigPath.path)
             return mergedConfigPath.path
         } catch {
             NSLog("[ServerManager] Failed to write merged config: %@", error.localizedDescription)
@@ -590,5 +590,4 @@ enum AuthCommand: Equatable {
     case geminiLogin
     case qwenLogin(email: String)
     case antigravityLogin
-    case zaiLogin(apiKey: String)
 }

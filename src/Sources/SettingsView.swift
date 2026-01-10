@@ -300,7 +300,7 @@ struct SettingsView: View {
                         iconName: "icon-zai.png",
                         accounts: authManager.accounts(for: .zai),
                         isAuthenticating: authenticatingService == .zai,
-                        helpText: "Z.AI GLM provides access to GLM-4.7 and other models via API key. Get your key at z.ai/manage-apikey/apikey-list",
+                        helpText: "Z.AI GLM provides access to GLM-4.7 and other models via API key. Get your key at https://z.ai/manage-apikey/apikey-list",
                         onConnect: { showingZaiApiKeyPrompt = true },
                         onDisconnect: { account in disconnectAccount(account) },
                         onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
@@ -390,7 +390,7 @@ struct SettingsView: View {
             VStack(spacing: 16) {
                 Text("Z.AI API Key")
                     .font(.headline)
-                Text("Enter your Z.AI API key from z.ai/manage-apikey/apikey-list")
+                Text("Enter your Z.AI API key from https://z.ai/manage-apikey/apikey-list")
                     .font(.caption)
                     .foregroundColor(.secondary)
                 TextField("", text: $zaiApiKey)
