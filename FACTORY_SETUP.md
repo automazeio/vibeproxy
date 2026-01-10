@@ -21,6 +21,7 @@ VibeProxy manages OAuth tokens, auto-refreshes them, routes requests, and handle
 - Active **ChatGPT Plus/Pro** subscription for OpenAI Codex access
 - **Google account** for Antigravity access (provides Gemini 3 Pro models - optional)
 - **Google Cloud account** with Gemini API access for Gemini 2.x models (optional)
+- **Z.AI API key** for GLM model access (optional) - get one at [z.ai/manage-apikey/apikey-list](https://z.ai/manage-apikey/apikey-list)
 - Factory CLI installed: `curl -fsSL https://app.factory.ai/cli | sh`
 
 ## Step 1: Install VibeProxy
@@ -53,6 +54,10 @@ Once VibeProxy is running:
    - Select a Google Cloud project (or accept the default)
    - This provides access to **Gemini 2.x** models
    - VibeProxy will automatically save your credentials
+7. **(Optional)** Click **"Add Account"** next to Z.AI GLM
+   - Enter your Z.AI API key (get one at [z.ai/manage-apikey/apikey-list](https://z.ai/manage-apikey/apikey-list))
+   - This provides access to **GLM-4.7** and other GLM models
+   - VibeProxy will securely store your API key
 
 ✅ The server starts automatically and runs on port **8317**
 
@@ -261,6 +266,28 @@ Edit your Factory configuration file at `~/.factory/config.json` (if the file do
       "base_url": "http://localhost:8317/v1",
       "api_key": "dummy-not-used",
       "provider": "openai"
+    },
+
+    {
+      "model_display_name": "GLM-4.7",
+      "model": "glm-4.7",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
+    },
+    {
+      "model_display_name": "GLM-4-Plus",
+      "model": "glm-4-plus",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
+    },
+    {
+      "model_display_name": "GLM-4-Flash",
+      "model": "glm-4-flash",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
     }
   ]
 }
@@ -331,6 +358,15 @@ Antigravity provides access to Claude models with a generous usage quota (shared
 ### Qwen Models
 - `qwen3-coder-plus` - Qwen3 Coder Plus (Most capable coding model)
 - `qwen3-coder-flash` - Qwen3 Coder Flash (Fast coding assistant)
+
+### Z.AI GLM Models
+- `glm-4.7` - GLM-4.7 (Latest and most capable GLM model)
+- `glm-4-plus` - GLM-4-Plus (Enhanced GLM model)
+- `glm-4-air` - GLM-4-Air (Balanced performance)
+- `glm-4-flash` - GLM-4-Flash (Fast and efficient)
+
+> [!NOTE]
+> Z.AI GLM models require an API key instead of OAuth authentication. Get your API key at [z.ai/manage-apikey/apikey-list](https://z.ai/manage-apikey/apikey-list) and add it in VibeProxy Settings → Z.AI GLM → Add Account.
 
 ### OpenAI Models
 

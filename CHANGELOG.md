@@ -10,7 +10,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Z.AI GLM Provider Support** - Add Z.AI as a new provider for GLM models
   - Enter your Z.AI API key directly in the Settings UI
   - Supports GLM-4.7, GLM-4-Plus, GLM-4-Air, and GLM-4-Flash models
-  - Get your API key at https://z.ai/manage-apikey
+  - Get your API key at https://z.ai/manage-apikey/apikey-list
   - Uses OpenAI-compatible endpoint for seamless integration
 
 
