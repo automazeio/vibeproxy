@@ -393,7 +393,7 @@ struct SettingsView: View {
                 Text("Enter your Z.AI API key from z.ai/manage-apikey/apikey-list")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                SecureField("sk-...", text: $zaiApiKey)
+                TextField("", text: $zaiApiKey)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 300)
                 HStack(spacing: 12) {
