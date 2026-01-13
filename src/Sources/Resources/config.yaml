@@ -6,6 +6,7 @@ host: 127.0.0.1
 
 # Amp CLI integration
 amp-upstream-url: "https://ampcode.com"
+# amp-upstream-api-key: "" # Optional: falls back to ~/.local/share/amp/secrets.json
 amp-restrict-management-to-localhost: true
 
 # Management API settings
@@ -39,9 +40,9 @@ quota-exceeded:
   switch-project: true
   switch-preview-model: true
 
-# Disable request authentication (Factory handles its own)
-auth:
-  providers: []
+# Enable OAuth providers for local subscriptions
+# Claude, Codex (GPT), Gemini tokens in ~/.cli-proxy-api/ will be used
+# Fallback to Amp upstream when no local auth available
 
-# No API keys needed for Claude OAuth
+# No API keys needed for OAuth-based providers
 generative-language-api-key: []

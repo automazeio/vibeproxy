@@ -4,7 +4,26 @@ All notable changes to VibeProxy will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.8.48] - 2026-01-12
+## [1.8.50] - 2026-01-13
+
+### Fixed
+- **Amp CLI Login Flow** - Fixed OAuth login failing with "403 Invalid state parameter"
+  - Login now redirects directly to ampcode.com to preserve OAuth state cookies
+  - Browser stays on ampcode.com during authentication for proper cookie handling
+- **Amp CLI OAuth Integration** - Fixed "auth_unavailable" errors when using Amp CLI
+  - Enabled local OAuth providers (Claude, Codex, Gemini) for Amp requests
+  - Your subscriptions are now used instead of Amp credits when available
+  - Automatic fallback to Amp upstream when no local OAuth token exists
+
+### Added
+- **Auto-fix Amp Secrets** - VibeProxy now automatically fixes the Amp secrets.json format on startup
+  - Adds the `apiKey` field that CLIProxyAPI needs
+  - No manual step required after `amp login`
+
+### Changed
+- **Amp Request Routing** - Improved routing logic for Amp management vs provider requests
+  - Management requests (auth, user, threads) forwarded to ampcode.com
+  - Provider requests routed through CLIProxyAPI for local OAuth support
 
 ## [1.8.49] - 2026-01-13
 

@@ -197,6 +197,7 @@ class ThinkingProxy {
         let method = parts[0]
         let path = parts[1]
         let httpVersion = parts[2]
+        NSLog("[ThinkingProxy] Incoming request: \(method) \(path)")
 
         // Collect headers while preserving original casing
         var headers: [(String, String)] = []
@@ -219,22 +220,28 @@ class ThinkingProxy {
         let bodyStart = requestString.distance(from: requestString.startIndex, to: bodyStartRange.upperBound)
         let bodyString = String(requestString[requestString.index(requestString.startIndex, offsetBy: bodyStart)...])
         
+        // Redirect Amp CLI login directly to ampcode.com to preserve auth state cookies
+        if path.starts(with: "/auth/cli-login") || path.starts(with: "/api/auth/cli-login") {
+            let loginPath = path.hasPrefix("/api/") ? String(path.dropFirst(4)) : path
+            let redirectUrl = "https://ampcode.com" + loginPath
+            NSLog("[ThinkingProxy] Redirecting Amp CLI login to: \(redirectUrl)")
+            sendRedirect(to: connection, location: redirectUrl)
+            return
+        }
+
         // Rewrite Amp CLI paths
         var rewrittenPath = path
-        if path.starts(with: "/auth/cli-login") {
-            rewrittenPath = "/api" + path
-            NSLog("[ThinkingProxy] Rewriting Amp CLI login: \(path) -> \(rewrittenPath)")
-        } else if path.starts(with: "/provider/") {
+        if path.starts(with: "/provider/") {
             // Rewrite /provider/* to /api/provider/*
             rewrittenPath = "/api" + path
             NSLog("[ThinkingProxy] Rewriting Amp provider path: \(path) -> \(rewrittenPath)")
         }
         
-        // Check if this is an Amp management API request (not provider routes)
-        // Management routes: /api/auth, /api/user, /api/meta, /api/threads, /api/telemetry, /api/internal
-        // Provider routes like /api/provider/* should pass through to CLIProxyAPI
-        if rewrittenPath.starts(with: "/api/") && !rewrittenPath.starts(with: "/api/provider/") {
-            let ampPath = String(rewrittenPath.dropFirst(4)) // Remove "/api" prefix
+        // Check if this is an Amp management request (anything not targeting provider or /v1)
+        let isProviderPath = rewrittenPath.starts(with: "/api/provider/") || rewrittenPath.starts(with: "/provider/")
+        let isCliProxyPath = rewrittenPath.starts(with: "/v1/") || rewrittenPath.starts(with: "/api/v1/")
+        if !isProviderPath && !isCliProxyPath {
+            let ampPath = rewrittenPath
             NSLog("[ThinkingProxy] Amp management request detected, forwarding to ampcode.com: \(ampPath)")
             forwardToAmp(method: method, path: ampPath, version: httpVersion, headers: headers, body: bodyString, originalConnection: connection)
             return
@@ -445,6 +452,30 @@ class ThinkingProxy {
                     responseString = responseString.replacingOccurrences(
                         of: "\r\nLocation: /",
                         with: "\r\nLocation: /api/"
+                    )
+
+                    // Rewrite absolute Location headers to keep browser on localhost proxy
+                    responseString = responseString.replacingOccurrences(
+                        of: "\r\nLocation: https://ampcode.com/",
+                        with: "\r\nLocation: /api/",
+                        options: .caseInsensitive
+                    )
+                    responseString = responseString.replacingOccurrences(
+                        of: "\r\nLocation: http://ampcode.com/",
+                        with: "\r\nLocation: /api/",
+                        options: .caseInsensitive
+                    )
+
+                    // Rewrite cookie domain so browser accepts cookies from localhost
+                    responseString = responseString.replacingOccurrences(
+                        of: "Domain=.ampcode.com",
+                        with: "Domain=localhost",
+                        options: .caseInsensitive
+                    )
+                    responseString = responseString.replacingOccurrences(
+                        of: "Domain=ampcode.com",
+                        with: "Domain=localhost",
+                        options: .caseInsensitive
                     )
                     
                     if let modifiedData = responseString.data(using: .utf8) {
@@ -735,6 +766,23 @@ class ThinkingProxy {
         responseData.append(bodyData)
         
         connection.send(content: responseData, completion: .contentProcessed({ _ in
+            connection.cancel()
+        }))
+    }
+
+    private func sendRedirect(to connection: NWConnection, location: String) {
+        let headers = "HTTP/1.1 302 Found\r\n" +
+                     "Location: \(location)\r\n" +
+                     "Content-Length: 0\r\n" +
+                     "Connection: close\r\n" +
+                     "\r\n"
+
+        guard let headerData = headers.data(using: .utf8) else {
+            connection.cancel()
+            return
+        }
+
+        connection.send(content: headerData, completion: .contentProcessed({ _ in
             connection.cancel()
         }))
     }

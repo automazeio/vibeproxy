@@ -80,9 +80,12 @@ class ServerManager: ObservableObject {
             completion(true)
             return
         }
-        
+
         // Clean up any orphaned processes from previous crashes
         killOrphanedProcesses()
+
+        // Fix Amp secrets.json if needed (add apiKey field for CLIProxyAPI compatibility)
+        fixAmpSecretsIfNeeded()
         
         // Use bundled binary from app bundle
         guard let resourcePath = Bundle.main.resourcePath else {
@@ -585,6 +588,46 @@ openai-compatibility:
             // Exit code 1 means no processes found - this is fine, no need to log
         } catch {
             // Silently fail - this is not critical
+        }
+    }
+
+    /// Fixes Amp secrets.json by adding apiKey field if missing
+    /// CLIProxyAPI needs a simple "apiKey" field, but Amp CLI saves keys with URL prefixes
+    private func fixAmpSecretsIfNeeded() {
+        let secretsPath = NSString(string: "~/.local/share/amp/secrets.json").expandingTildeInPath
+
+        guard FileManager.default.fileExists(atPath: secretsPath) else {
+            return // No secrets file yet - user hasn't logged into Amp
+        }
+
+        do {
+            let data = try Data(contentsOf: URL(fileURLWithPath: secretsPath))
+            guard var json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return
+            }
+
+            // Check if apiKey already exists
+            if json["apiKey"] != nil {
+                return // Already fixed
+            }
+
+            // Try to get key from URL-prefixed entries
+            let apiKey = json["apiKey@https://ampcode.com/"] as? String
+                ?? json["apiKey@http://localhost:8317"] as? String
+
+            guard let key = apiKey, !key.isEmpty else {
+                return // No key to copy
+            }
+
+            // Add the apiKey field
+            json["apiKey"] = key
+
+            let updatedData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+            try updatedData.write(to: URL(fileURLWithPath: secretsPath))
+
+            addLog("✓ Fixed Amp secrets.json (added apiKey field)")
+        } catch {
+            // Silently fail - user can fix manually if needed
         }
     }
 }
