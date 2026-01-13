@@ -507,7 +507,13 @@ openai-compatibility:
 
 """
         for key in zaiApiKeys {
-            zaiSection += "      - api-key: \"\(key)\"\n"
+            // Escape special YAML characters in double-quoted strings
+            let escapedKey = key
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+                .replacingOccurrences(of: "\n", with: "\\n")
+                .replacingOccurrences(of: "\t", with: "\\t")
+            zaiSection += "      - api-key: \"\(escapedKey)\"\n"
         }
         zaiSection += """
     models:

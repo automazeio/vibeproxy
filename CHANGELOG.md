@@ -4,17 +4,38 @@ All notable changes to VibeProxy will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.8.48] - 2026-01-12
+
+## [1.8.49] - 2026-01-13
+
+### Updated
+- **CLIProxyAPI 6.6.103-0** - Latest upstream release (#164)
+  - Various upstream improvements and stability enhancements
+
 
 ### Added
-- **Z.AI GLM Provider Support** - Add Z.AI as a new provider for GLM models
+- **Z.AI GLM Provider Support** - Add Z.AI as a new provider for GLM models (#161)
   - Enter your Z.AI API key directly in the Settings UI
   - Supports GLM-4.7, GLM-4-Plus, GLM-4-Air, and GLM-4-Flash models
-  - Get your API key at https://z.ai/manage-apikey/apikey-list
+  - Get your API key at [z.ai](https://z.ai/manage-apikey/apikey-list)
   - Uses OpenAI-compatible endpoint for seamless integration
+- **Edit menu** - Added standard Edit menu for keyboard shortcuts (Cmd+C/V/X/A)
+
+### Fixed
+- **YAML escaping** - API keys with special characters are now properly escaped
 
 
-## [1.8.1] - 2025-12-08
+## [1.8.47] - 2026-01-12
+### Updated
+- **CLIProxyAPI 6.6.100-0** - Latest upstream release (#163)
+  - Various upstream improvements and stability enhancements
+
+
+## [1.8.46] - 2026-01-10
+
+### Updated
+- **CLIProxyAPI 6.6.98-0** - Latest upstream release (#162)
+  - Various upstream improvements and stability enhancements
 
 ## [1.8.45] - 2026-01-10
 
@@ -774,6 +795,9 @@ All future changes will be documented here before release.
 
 ---
 
+[1.8.49]: https://github.com/automazeio/vibeproxy/releases/tag/v1.8.49
+[1.8.47]: https://github.com/automazeio/vibeproxy/releases/tag/v1.8.47
+[1.8.46]: https://github.com/automazeio/vibeproxy/releases/tag/v1.8.46
 [1.8.45]: https://github.com/automazeio/vibeproxy/releases/tag/v1.8.45
 [1.8.44]: https://github.com/automazeio/vibeproxy/releases/tag/v1.8.44
 [1.8.43]: https://github.com/automazeio/vibeproxy/releases/tag/v1.8.43

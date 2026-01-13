@@ -283,6 +283,13 @@ Edit your Factory configuration file at `~/.factory/config.json` (if the file do
       "provider": "openai"
     },
     {
+      "model_display_name": "GLM-4-Air",
+      "model": "glm-4-air",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
+    },
+    {
       "model_display_name": "GLM-4-Flash",
       "model": "glm-4-flash",
       "base_url": "http://localhost:8317/v1",
