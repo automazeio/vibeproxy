@@ -370,7 +370,7 @@ struct SettingsView: View {
                 }
 
                 HStack(spacing: 4) {
-                    Text("© 2025")
+                    Text("© 2026")
                         .font(.caption)
                         .foregroundColor(.secondary)
                     Link("Automaze, Ltd.", destination: URL(string: "https://automaze.io")!)
@@ -394,7 +394,7 @@ struct SettingsView: View {
             }
             .padding(.bottom, 12)
         }
-        .frame(width: 480, height: 680)
+        .frame(width: 480, height: 740)
         .sheet(isPresented: $showingQwenEmailPrompt) {
             VStack(spacing: 16) {
                 Text("Qwen Account Email")
