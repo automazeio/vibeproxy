@@ -195,7 +195,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
         settingsWindow = window
     }
     
-    func windowDidClose(_ notification: Notification) {
+    func windowWillClose(_ notification: Notification) {
         if notification.object as? NSWindow === settingsWindow {
             settingsWindow = nil
         }

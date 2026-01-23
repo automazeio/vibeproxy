@@ -244,6 +244,8 @@ struct SettingsView: View {
     @State private var zaiApiKey = ""
     @State private var pendingRefresh: DispatchWorkItem?
     @State private var expandedRowCount = 0
+    @State private var proxyURLInput = ""
+    @State private var isNetworkExpanded = false
     
     private enum Timing {
         static let serverRestartDelay: TimeInterval = 0.3
@@ -255,6 +257,10 @@ struct SettingsView: View {
             return "v\(version)"
         }
         return ""
+    }
+
+    private var trimmedProxyURLInput: String {
+        proxyURLInput.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     var body: some View {
@@ -287,6 +293,49 @@ struct SettingsView: View {
                         .onChange(of: launchAtLogin) { _, newValue in
                             toggleLaunchAtLogin(newValue)
                         }
+
+                    DisclosureGroup(isExpanded: $isNetworkExpanded) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(alignment: .center, spacing: 8) {
+                                Text("Proxy URL")
+                                    .frame(width: 80, alignment: .leading)
+                                TextField("", text: $proxyURLInput)
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(maxWidth: .infinity)
+                                    .multilineTextAlignment(.leading)
+                            }
+                            HStack(spacing: 8) {
+                                Button("Apply") {
+                                    applyProxyURL()
+                                }
+                                .disabled(trimmedProxyURLInput == serverManager.proxyURL)
+                                Button("Clear") {
+                                    clearProxyURL()
+                                }
+                                .disabled(proxyURLInput.isEmpty && serverManager.proxyURL.isEmpty)
+                                Spacer()
+                            }
+                            Text("Leave empty to disable. Example: http://proxy.local:8080 or socks5://127.0.0.1:1080")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 6)
+                    } label: {
+                        HStack {
+                            Text("Network")
+                            Spacer()
+                            if !serverManager.proxyURL.isEmpty {
+                                Text("Configured")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            isNetworkExpanded.toggle()
+                        }
+                    }
 
                     HStack {
                         Text("Auth files")
@@ -400,7 +449,6 @@ struct SettingsView: View {
                 }
             }
             .formStyle(.grouped)
-            .scrollDisabled(expandedRowCount == 0)
 
             Spacer()
                 .frame(height: 6)
@@ -451,7 +499,7 @@ struct SettingsView: View {
             }
             .padding(.bottom, 12)
         }
-        .frame(width: 480, height: 740)
+        .frame(width: 480, height: 800)
         .sheet(isPresented: $showingQwenEmailPrompt) {
             VStack(spacing: 16) {
                 Text("Qwen Account Email")
@@ -507,6 +555,8 @@ struct SettingsView: View {
         .onAppear {
             authManager.checkAuthStatus()
             checkLaunchAtLogin()
+            proxyURLInput = serverManager.proxyURL
+            isNetworkExpanded = false
             startMonitoringAuthDirectory()
         }
         .onDisappear {
@@ -524,6 +574,16 @@ struct SettingsView: View {
     private func openAuthFolder() {
         let authDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cli-proxy-api")
         NSWorkspace.shared.open(authDir)
+    }
+
+    private func applyProxyURL() {
+        serverManager.setProxyURL(proxyURLInput)
+        proxyURLInput = serverManager.proxyURL
+    }
+
+    private func clearProxyURL() {
+        proxyURLInput = ""
+        applyProxyURL()
     }
 
     private func toggleLaunchAtLogin(_ enabled: Bool) {

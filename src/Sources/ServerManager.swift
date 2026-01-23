@@ -55,6 +55,12 @@ class ServerManager: ObservableObject {
             UserDefaults.standard.set(enabledProviders, forKey: "enabledProviders")
         }
     }
+    @Published var proxyURL: String = "" {
+        didSet {
+            UserDefaults.standard.set(proxyURL, forKey: "proxyURL")
+        }
+    }
+    private var activeConfigPath: String = ""
 
     /// Vercel AI Gateway configuration for Claude requests
     @Published var vercelGatewayEnabled: Bool = false {
@@ -104,6 +110,9 @@ class ServerManager: ObservableObject {
         }
         vercelGatewayEnabled = UserDefaults.standard.bool(forKey: "vercelGatewayEnabled")
         vercelApiKey = UserDefaults.standard.string(forKey: "vercelApiKey") ?? ""
+        if let savedProxyURL = UserDefaults.standard.string(forKey: "proxyURL") {
+            proxyURL = savedProxyURL
+        }
     }
 
     /// Check if a provider is enabled (defaults to true if not set)
@@ -111,14 +120,41 @@ class ServerManager: ObservableObject {
         return enabledProviders[providerKey] ?? true
     }
 
-    /// Set provider enabled state and regenerate config (hot reload - no restart needed)
+    /// Set provider enabled state and regenerate config (hot reload where possible)
     func setProviderEnabled(_ providerKey: String, enabled: Bool) {
         enabledProviders[providerKey] = enabled
         addLog(enabled ? "✓ Enabled provider: \(providerKey)" : "⚠️ Disabled provider: \(providerKey)")
 
-        // Regenerate config - CLIProxyAPI hot reloads config.yaml automatically
-        _ = getConfigPath()
-        addLog("Config updated (hot reload)")
+        applyConfigUpdate()
+    }
+
+    func setProxyURL(_ url: String) {
+        let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed != proxyURL else { return }
+        proxyURL = trimmed
+        addLog(trimmed.isEmpty ? "Proxy URL cleared" : "Proxy URL updated")
+
+        applyConfigUpdate()
+    }
+
+    private func applyConfigUpdate() {
+        let newConfigPath = getConfigPath()
+        guard !newConfigPath.isEmpty else { return }
+
+        if isRunning {
+            let currentPath = activeConfigPath.isEmpty ? newConfigPath : activeConfigPath
+            if currentPath != newConfigPath {
+                activeConfigPath = newConfigPath
+                addLog("Config path changed; restarting server to apply update")
+                stop { [weak self] in
+                    self?.start { _ in }
+                }
+                return
+            }
+            addLog("Config updated (hot reload)")
+        }
+
+        activeConfigPath = newConfigPath
     }
     
     deinit {
@@ -198,6 +234,7 @@ class ServerManager: ObservableObject {
         
         do {
             try process?.run()
+            activeConfigPath = configPath
             DispatchQueue.main.async {
                 self.isRunning = true
             }
@@ -255,6 +292,7 @@ class ServerManager: ObservableObject {
             DispatchQueue.main.async {
                 self.process = nil
                 self.isRunning = false
+                self.activeConfigPath = ""
                 self.addLog("✓ Server stopped")
                 NotificationCenter.default.post(name: .serverStatusChanged, object: nil)
                 completion?()
@@ -278,8 +316,11 @@ class ServerManager: ObservableObject {
         let authProcess = Process()
         authProcess.executableURL = URL(fileURLWithPath: bundledPath)
         
-        // Get the config path
-        let configPath = (resourcePath as NSString).appendingPathComponent("config.yaml")
+        let configPath = getConfigPath()
+        guard !configPath.isEmpty && FileManager.default.fileExists(atPath: configPath) else {
+            completion(false, "Config not found")
+            return
+        }
         
         var qwenEmail: String?
         
@@ -429,12 +470,12 @@ class ServerManager: ObservableObject {
                     completion(true, "🌐 Browser opened for authentication.\n\nPlease complete the login in your browser.\n\nThe app will automatically detect when you're authenticated.")
                 } else {
                     // Process died quickly - check for error
-                    let outputData = try? outputPipe.fileHandleForReading.readDataToEndOfFile()
-                    let errorData = try? errorPipe.fileHandleForReading.readDataToEndOfFile()
+                    let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+                    let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
                     
-                    var output = String(data: outputData ?? Data(), encoding: .utf8) ?? ""
+                    var output = String(data: outputData, encoding: .utf8) ?? ""
                     if output.isEmpty { output = capture.text }
-                    let error = String(data: errorData ?? Data(), encoding: .utf8) ?? ""
+                    let error = String(data: errorData, encoding: .utf8) ?? ""
                     
                     NSLog("[Auth] Process died quickly - output: %@", output.isEmpty ? "(empty)" : String(output.prefix(200)))
                     
@@ -517,7 +558,7 @@ class ServerManager: ObservableObject {
         }
     }
     
-    /// Returns the config path to use, merging bundled config with Z.AI provider and provider exclusions
+    /// Returns the config path to use, merging bundled config with proxy settings, Z.AI provider, and provider exclusions
     func getConfigPath() -> String {
         guard let resourcePath = Bundle.main.resourcePath else {
             return ""
@@ -525,6 +566,12 @@ class ServerManager: ObservableObject {
 
         let bundledConfigPath = (resourcePath as NSString).appendingPathComponent("config.yaml")
         let authDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cli-proxy-api")
+        let mergedConfigPath = authDir.appendingPathComponent("merged-config.yaml")
+        do {
+            try FileManager.default.createDirectory(at: authDir, withIntermediateDirectories: true)
+        } catch {
+            NSLog("[ServerManager] Failed to create auth directory: %@", error.localizedDescription)
+        }
 
         // Check for Z.AI auth files
         var zaiApiKeys: [String] = []
@@ -546,20 +593,31 @@ class ServerManager: ObservableObject {
             }
         }
 
-        // If no Z.AI keys and no disabled providers, use bundled config
-        guard !zaiApiKeys.isEmpty || !disabledProviders.isEmpty else {
+        let trimmedProxyURL = proxyURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let shouldAddProxy = !trimmedProxyURL.isEmpty
+        let shouldAddProviders = !disabledProviders.isEmpty
+        let shouldAddZai = !zaiApiKeys.isEmpty && isProviderEnabled("zai")
+
+        if !shouldAddProxy && !shouldAddProviders && !shouldAddZai {
+            if FileManager.default.fileExists(atPath: mergedConfigPath.path) {
+                try? FileManager.default.removeItem(at: mergedConfigPath)
+            }
             return bundledConfigPath
         }
 
         // Generate merged config
-        guard let bundledContent = try? String(contentsOfFile: bundledConfigPath, encoding: .utf8) else {
+        guard var bundledContent = try? String(contentsOfFile: bundledConfigPath, encoding: .utf8) else {
             return bundledConfigPath
         }
-        
+
+        if shouldAddProxy {
+            bundledContent = applyProxyURLOverride(to: bundledContent, proxyURL: trimmedProxyURL)
+        }
+
         var additionalConfig = ""
 
         // Build oauth-excluded-models section for disabled providers
-        if !disabledProviders.isEmpty {
+        if shouldAddProviders {
             additionalConfig += """
 
 # Provider exclusions (auto-added by VibeProxy)
@@ -574,7 +632,7 @@ oauth-excluded-models:
         }
 
         // Build Z.AI openai-compatibility section (only if Z.AI is enabled)
-        if !zaiApiKeys.isEmpty && isProviderEnabled("zai") {
+        if shouldAddZai {
             additionalConfig += """
 
 # Z.AI GLM Provider (auto-added by VibeProxy)
@@ -585,12 +643,7 @@ openai-compatibility:
 
 """
             for key in zaiApiKeys {
-                // Escape special YAML characters in double-quoted strings
-                let escapedKey = key
-                    .replacingOccurrences(of: "\\", with: "\\\\")
-                    .replacingOccurrences(of: "\"", with: "\\\"")
-                    .replacingOccurrences(of: "\n", with: "\\n")
-                    .replacingOccurrences(of: "\t", with: "\\t")
+                let escapedKey = escapeYAMLDoubleQuoted(key)
                 additionalConfig += "      - api-key: \"\(escapedKey)\"\n"
             }
             additionalConfig += """
@@ -607,7 +660,6 @@ openai-compatibility:
         }
 
         let mergedContent = bundledContent + additionalConfig
-        let mergedConfigPath = authDir.appendingPathComponent("merged-config.yaml")
         
         do {
             try mergedContent.write(to: mergedConfigPath, atomically: true, encoding: .utf8)
@@ -618,6 +670,35 @@ openai-compatibility:
             NSLog("[ServerManager] Failed to write merged config: %@", error.localizedDescription)
             return bundledConfigPath
         }
+    }
+
+    private func applyProxyURLOverride(to content: String, proxyURL: String) -> String {
+        let escapedURL = escapeYAMLDoubleQuoted(proxyURL)
+        let newLine = "proxy-url: \"\(escapedURL)\""
+        var didReplace = false
+        let lines = content.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+        let updated = lines.map { line -> String in
+            let trimmed = String(line).trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("proxy-url:") {
+                didReplace = true
+                let indent = line.prefix { $0 == " " || $0 == "\t" }
+                return "\(indent)\(newLine)"
+            }
+            return String(line)
+        }
+        var result = updated.joined(separator: "\n")
+        if !didReplace {
+            result += "\n\n# Network proxy (auto-added by VibeProxy)\n\(newLine)\n"
+        }
+        return result
+    }
+
+    private func escapeYAMLDoubleQuoted(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\t", with: "\\t")
     }
     
     func getLogs() -> [String] {
