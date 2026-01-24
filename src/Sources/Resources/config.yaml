@@ -11,7 +11,7 @@ amp-restrict-management-to-localhost: true
 # Management API settings
 remote-management:
   allow-remote: false
-  secret-key: ""  # Leave empty to disable management API
+  secret-key: "*"  # Leave empty to disable management API
 
 # Authentication directory (stores OAuth tokens)
 auth-dir: "~/.cli-proxy-api"

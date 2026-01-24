@@ -341,9 +341,12 @@ struct SettingsView: View {
                         onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
                     )
                 }
+
+                Section("Quota — Antigravity, Gemini & Codex only") {
+                    QuotaSection(authManager: authManager)
+                }
             }
             .formStyle(.grouped)
-            .scrollDisabled(expandedRowCount == 0)
 
             Spacer()
                 .frame(height: 6)
@@ -625,7 +628,7 @@ struct SettingsView: View {
         }
     }
     
-    // MARK: - File Monitoring
+    // File Monitoring
     
     private func startMonitoringAuthDirectory() {
         let authDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cli-proxy-api")
