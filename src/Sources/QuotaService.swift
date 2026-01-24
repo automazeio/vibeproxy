@@ -193,6 +193,32 @@ struct GeminiCliQuotaGroupDef {
     let modelIds: [String]
 }
 
+// Thread-safe cache for auth files
+private actor AuthFilesCache {
+    private var files: [AuthFileInfo] = []
+    private var cacheTime: Date?
+    private let expiry: TimeInterval = 60 // 1 minute
+
+    func getCachedFiles() -> [AuthFileInfo]? {
+        guard let time = cacheTime,
+              Date().timeIntervalSince(time) < expiry,
+              !files.isEmpty else {
+            return nil
+        }
+        return files
+    }
+
+    func setFiles(_ newFiles: [AuthFileInfo]) {
+        files = newFiles
+        cacheTime = Date()
+    }
+
+    func clear() {
+        files = []
+        cacheTime = nil
+    }
+}
+
 //  QuotaService
 
 class QuotaService {
@@ -280,8 +306,6 @@ class QuotaService {
         )
     ]
 
-    private let geminiCliIgnoredModelPrefixes = ["gemini-2.0-flash"]
-
     // Request headers (backend replaces $TOKEN$ with actual token)
     private let antigravityHeaders = [
         "Authorization": "Bearer $TOKEN$",
@@ -300,10 +324,8 @@ class QuotaService {
 
     private let defaultAntigravityProjectId = "bamboo-precept-lgxtn"
 
-    // Cache auth file info
-    private var authFilesCache: [AuthFileInfo] = []
-    private var authFilesCacheTime: Date?
-    private let cacheExpiry: TimeInterval = 60 // 1 minute
+    // Thread-safe cache using actor
+    private let cache = AuthFilesCache()
 
     private init() {
         let config = URLSessionConfiguration.default
@@ -316,10 +338,8 @@ class QuotaService {
 
     private func fetchAuthFiles() async throws -> [AuthFileInfo] {
         // Return cached if valid
-        if let cacheTime = authFilesCacheTime,
-           Date().timeIntervalSince(cacheTime) < cacheExpiry,
-           !authFilesCache.isEmpty {
-            return authFilesCache
+        if let cached = await cache.getCachedFiles() {
+            return cached
         }
 
         guard let url = URL(string: "\(proxyBaseURL)/v0/management/auth-files") else {
@@ -345,8 +365,7 @@ class QuotaService {
         let decoder = JSONDecoder()
         let result = try decoder.decode(AuthFilesResponse.self, from: data)
 
-        authFilesCache = result.files
-        authFilesCacheTime = Date()
+        await cache.setFiles(result.files)
 
         return result.files
     }
@@ -415,7 +434,7 @@ class QuotaService {
             ["project": projectId]
         ]
 
-        var lastError: QuotaError = .noAuthFile
+        var lastError: QuotaError?
 
         for urlString in antigravityQuotaURLs {
             for body in requestBodies {
@@ -465,7 +484,7 @@ class QuotaService {
             }
         }
 
-        throw lastError
+        throw lastError ?? .noAuthFile
     }
 
     private func getProjectIdFromFile(account: AuthAccount) -> String? {
@@ -779,7 +798,8 @@ class QuotaService {
 
     // Clear cache (call when auth files change)
     func clearCache() {
-        authFilesCache = []
-        authFilesCacheTime = nil
+        Task {
+            await cache.clear()
+        }
     }
 }
