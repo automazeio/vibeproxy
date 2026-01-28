@@ -376,7 +376,7 @@ Antigravity provides access to Claude models with a generous usage quota (shared
 > [!IMPORTANT]
 > **Gemini 3 Pro Configuration Requirements**:
 > - **Authentication**: Gemini 3 Pro models require **Antigravity** authentication (not Gemini CLI auth)
-> - **Provider Setting**: Use `"provider": "generic-chat-completion-api"`. `provider: openai` is defaulted to  response API and only supports OpenAI models.
+> - **Provider Setting**: Use `"provider": "generic-chat-completion-api"`. The `"provider": "openai"` setting defaults to the OpenAI response API format and only supports OpenAI models.
 > - **Available in**: VibeProxy v1.0.9+ with CLIProxyAPI 6.5.1+
 > 
 > Connect to Antigravity in VibeProxy Settings → Click "Connect" next to Antigravity → Sign in with your Google account. After connecting, restart VibeProxy to activate Gemini 3 Pro access.
