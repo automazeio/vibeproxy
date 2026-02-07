@@ -230,10 +230,8 @@ class QuotaService {
     // Backend proxy endpoint (CLIProxyAPI port, not ThinkingProxy)
     private let proxyBaseURL = "http://localhost:8318"
 
-    // Management key for backend authorization (loaded from Keychain)
-    private var managementKey: String {
-        KeychainHelper.shared.getOrCreateManagementKey()
-    }
+    // Management key for backend authorization
+    private let managementKey = "*"
 
     // API URLs for quota
     private let antigravityQuotaURLs = [

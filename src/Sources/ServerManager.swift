@@ -531,32 +531,16 @@ class ServerManager: ObservableObject {
             }
         }
 
-        // Get management key from Keychain
-        let managementKey = KeychainHelper.shared.getOrCreateManagementKey()
-
-        // If no Z.AI keys and no disabled providers, use bundled config with key injection
+        // If no Z.AI keys and no disabled providers, use bundled config
         guard !zaiApiKeys.isEmpty || !disabledProviders.isEmpty else {
-            // Even without Z.AI keys, we need to inject the management key
-            guard let bundledContent = try? String(contentsOfFile: bundledConfigPath, encoding: .utf8) else {
-                return bundledConfigPath
-            }
-            let mergedConfigPath = authDir.appendingPathComponent("merged-config.yaml")
-            let mergedContent = injectManagementKey(bundledContent: bundledContent, managementKey: managementKey)
-            do {
-                try mergedContent.write(to: mergedConfigPath, atomically: true, encoding: .utf8)
-                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: mergedConfigPath.path)
-                return mergedConfigPath.path
-            } catch {
-                NSLog("[ServerManager] Failed to write merged config: %@", error.localizedDescription)
-                return bundledConfigPath
-            }
+            return bundledConfigPath
         }
 
         // Generate merged config
         guard let bundledContent = try? String(contentsOfFile: bundledConfigPath, encoding: .utf8) else {
             return bundledConfigPath
         }
-
+        
         var additionalConfig = ""
 
         // Build oauth-excluded-models section for disabled providers
@@ -607,7 +591,7 @@ openai-compatibility:
 """
         }
 
-        let mergedContent = injectManagementKey(bundledContent: bundledContent, managementKey: managementKey) + additionalConfig
+        let mergedContent = bundledContent + additionalConfig
         let mergedConfigPath = authDir.appendingPathComponent("merged-config.yaml")
         
         do {
@@ -620,20 +604,7 @@ openai-compatibility:
             return bundledConfigPath
         }
     }
-
-    /// Injects the management key into the config content
-    /// This replaces the secret-key field with the actual key from Keychain
-    private func injectManagementKey(bundledContent: String, managementKey: String) -> String {
-        // Use regex to replace secret-key value while preserving the comment
-        // Pattern matches: secret-key: "..." # comment
-        // And replaces with: secret-key: "actual-key" # comment
-        return bundledContent.replacingOccurrences(
-            of: "(secret-key\\s*:\\s*\")[^\"]*(\"\\s*#\\s*[^\n]*)",
-            with: "$1\(managementKey)$2",
-            options: .regularExpression
-        )
-    }
-
+    
     func getLogs() -> [String] {
         return logBuffer.elements()
     }
