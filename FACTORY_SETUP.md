@@ -218,6 +218,13 @@ Edit your Factory configuration file at `~/.factory/config.json` (if the file do
       "provider": "openai"
     },
     {
+      "model_display_name": "GPT-5.3 Codex",
+      "model": "gpt-5.3-codex",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
+    },
+    {
       "model_display_name": "GPT-5.3 Codex (Low)",
       "model": "gpt-5.3-codex(low)",
       "base_url": "http://localhost:8317/v1",
@@ -416,6 +423,7 @@ Antigravity provides access to Claude models with a generous usage quota (shared
 ### OpenAI Models
 
 **GPT-5.3 Codex** (Latest):
+- `gpt-5.3-codex` - Default Codex reasoning profile (recommended starting point)
 - `gpt-5.3-codex(low)` - Low reasoning effort
 - `gpt-5.3-codex(medium)` - Medium reasoning effort
 - `gpt-5.3-codex(high)` - High reasoning effort
