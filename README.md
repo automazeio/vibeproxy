@@ -24,7 +24,7 @@ Built on [CLIProxyAPIPlus](https://github.com/router-for-me/CLIProxyAPIPlus), it
 > [!TIP]
 > 📣 **NEW: Vercel AI Gateway Integration!**<br>Route your Claude requests through [Vercel's officially sanctioned AI Gateway](https://vercel.com/docs/ai-gateway) for safer access to your Claude Max subscription. No more worrying about account risks from using OAuth tokens directly!
 >
-> **Latest models supported:** Gemini 3 Pro (via Antigravity), GPT-5.1 / GPT-5.1 Codex, Claude Sonnet 4.5 / Opus 4.5 with extended thinking, GitHub Copilot, and Z.AI GLM-4.7! 🚀 
+> **Latest models supported:** Gemini 3 Pro (via Antigravity), GPT-5.3 Codex (`gpt-5.3-codex(low)`, `gpt-5.3-codex(medium)`, `gpt-5.3-codex(high)`, `gpt-5.3-codex(xhigh)`, `gpt-5.3-codex-spark`), Claude Sonnet 4.5 / Opus 4.5 with extended thinking, GitHub Copilot, and Z.AI GLM-4.7! 🚀 
 > 
 > **Setup Guides:**
 > - [Factory CLI Setup →](FACTORY_SETUP.md) - Use Factory Droids with your AI subscriptions

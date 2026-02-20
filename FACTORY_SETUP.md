@@ -218,6 +218,41 @@ Edit your Factory configuration file at `~/.factory/config.json` (if the file do
       "provider": "openai"
     },
     {
+      "model_display_name": "GPT-5.3 Codex (Low)",
+      "model": "gpt-5.3-codex(low)",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
+    },
+    {
+      "model_display_name": "GPT-5.3 Codex (Medium)",
+      "model": "gpt-5.3-codex(medium)",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
+    },
+    {
+      "model_display_name": "GPT-5.3 Codex (High)",
+      "model": "gpt-5.3-codex(high)",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
+    },
+    {
+      "model_display_name": "GPT-5.3 Codex (xHigh)",
+      "model": "gpt-5.3-codex(xhigh)",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
+    },
+    {
+      "model_display_name": "GPT-5.3 Codex Spark",
+      "model": "gpt-5.3-codex-spark",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
+    },
+    {
       "model_display_name": "Gemini 3 Pro",
       "model": "gemini-3-pro-preview",
       "base_url": "http://localhost:8317/v1",
@@ -314,7 +349,7 @@ Edit your Factory configuration file at `~/.factory/config.json` (if the file do
    Then choose from:
    - `claude-opus-4-5` (Claude Opus 4.5 - Most powerful)
    - `claude-sonnet-4-5` (Claude 4.5 Sonnet)
-   - `gpt-5.1`, `gpt-5.1-codex`, etc.
+   - `gpt-5.2`, `gpt-5.2-codex`, `gpt-5.3-codex(low|medium|high|xhigh)`, `gpt-5.3-codex-spark`, etc.
    - `gemini-3-pro-preview`, `gemini-3-pro-image-preview`, `gemini-2.5-pro`, etc.
 
 3. **Start coding!** Factory will now route all requests through VibeProxy, which handles authentication automatically.
@@ -377,9 +412,16 @@ Antigravity provides access to Claude models with a generous usage quota (shared
 
 ### OpenAI Models
 
-**GPT-5.2** (Latest):
-- `gpt-5.2` - Latest GPT with improved reasoning
-- `gpt-5.2-codex` - Latest Codex for coding tasks
+**GPT-5.3 Codex** (Latest):
+- `gpt-5.3-codex(low)` - Low reasoning effort
+- `gpt-5.3-codex(medium)` - Medium reasoning effort
+- `gpt-5.3-codex(high)` - High reasoning effort
+- `gpt-5.3-codex(xhigh)` - Extra high reasoning effort
+- `gpt-5.3-codex-spark` - Fast Codex variant optimized for speed
+
+**GPT-5.2**:
+- `gpt-5.2` - Updated GPT model with improved reasoning
+- `gpt-5.2-codex` - Previous Codex coding model
 
 **GPT-5.1**:
 - `gpt-5.1` - Next-gen GPT with better reasoning + planning
@@ -395,7 +437,7 @@ Use parentheses syntax to control reasoning effort:
 - `gpt-5.2(high)` - High reasoning effort
 - `gpt-5.2(xhigh)` - Extra high reasoning effort
 
-This works with any GPT-5.x model: `gpt-5.1(high)`, `gpt-5.1-codex(medium)`, `gpt-5.2-codex(high)`, etc.
+This works with any GPT-5.x model: `gpt-5.1(high)`, `gpt-5.1-codex(medium)`, `gpt-5.2-codex(high)`, `gpt-5.3-codex(high)`, `gpt-5.3-codex(xhigh)`, etc.
 
 No manual CLIProxyAPI update is required—VibeProxy automatically keeps CLIProxyAPI up to date via our new auto-update workflow, so you can use new models immediately.
 
@@ -412,6 +454,7 @@ No manual CLIProxyAPI update is required—VibeProxy automatically keeps CLIProx
 |---------|----------|
 | Can't connect to Claude/Codex/Gemini | Re-click "Connect" in VibeProxy settings |
 | Factory shows 404 errors | Make sure VibeProxy server is running (check menu bar) |
+| Droid shows `401 status code (no body)` with custom models | Ensure every custom model uses `"base_url": "http://localhost:8317/v1"` (not `http://localhost:8317`). Then remove stale/duplicate `customModels` in `~/.factory/settings.json` and restart Droid so it reloads the updated model list. |
 | Authentication expired | Disconnect and reconnect the service in VibeProxy |
 | Port 8317 already in use | Quit any other instances of VibeProxy or CLIProxyAPI |
 | Gemini returns 401 errors | Verify your Google Cloud project has Gemini API enabled |
