@@ -359,7 +359,7 @@ Edit your Factory configuration file at `~/.factory/config.json` (if the file do
    Then choose from:
    - `claude-opus-4-5` (Claude Opus 4.5 - Most powerful)
    - `claude-sonnet-4-5` (Claude 4.5 Sonnet)
-   - `gpt-5.2`, `gpt-5.2-codex`, `gpt-5.3-codex(low|medium|high|xhigh)`, `gpt-5.3-codex-spark`, etc.
+   - `gpt-5.2`, `gpt-5.2-codex`, `gpt-5.3-codex`, `gpt-5.3-codex(low|medium|high|xhigh)`, `gpt-5.3-codex-spark`, etc.
    - `gemini-3-pro-preview`, `gemini-3-pro-image-preview`, `gemini-2.5-pro`, etc.
 
 3. **Start coding!** Factory will now route all requests through VibeProxy, which handles authentication automatically.
