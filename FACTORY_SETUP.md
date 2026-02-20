@@ -246,7 +246,7 @@ Edit your Factory configuration file at `~/.factory/config.json` (if the file do
       "provider": "openai"
     },
     {
-      "model_display_name": "GPT-5.3 Codex Spark",
+      "model_display_name": "GPT-5.3 Codex Spark (Research Preview)",
       "model": "gpt-5.3-codex-spark",
       "base_url": "http://localhost:8317/v1",
       "api_key": "dummy-not-used",
@@ -335,6 +335,9 @@ Edit your Factory configuration file at `~/.factory/config.json` (if the file do
 }
 ```
 
+> [!IMPORTANT]
+> `gpt-5.3-codex-spark` is currently in research preview. It is limited to ChatGPT Pro subscribers using Sign in with ChatGPT-style flows, is not available via standard API keys, and has separate rate/usage rules.
+
 ## Step 4: Use Factory CLI
 
 1. **Launch Factory CLI**:
@@ -417,7 +420,7 @@ Antigravity provides access to Claude models with a generous usage quota (shared
 - `gpt-5.3-codex(medium)` - Medium reasoning effort
 - `gpt-5.3-codex(high)` - High reasoning effort
 - `gpt-5.3-codex(xhigh)` - Extra high reasoning effort
-- `gpt-5.3-codex-spark` - Fast Codex variant optimized for speed
+- `gpt-5.3-codex-spark` - Fast Codex variant optimized for speed (research preview only: ChatGPT Pro + Sign in with ChatGPT flows, no standard API-key access, separate rate/usage limits)
 
 **GPT-5.2**:
 - `gpt-5.2` - Updated GPT model with improved reasoning
@@ -454,7 +457,7 @@ No manual CLIProxyAPI update is required—VibeProxy automatically keeps CLIProx
 |---------|----------|
 | Can't connect to Claude/Codex/Gemini | Re-click "Connect" in VibeProxy settings |
 | Factory shows 404 errors | Make sure VibeProxy server is running (check menu bar) |
-| Droid shows `401 status code (no body)` with custom models | Ensure every custom model uses `"base_url": "http://localhost:8317/v1"` (not `http://localhost:8317`). Then remove stale/duplicate `customModels` in `~/.factory/settings.json` and restart Droid so it reloads the updated model list. |
+| Droid shows `401 status code (no body)` with custom models | Verify base URL matches provider: OpenAI-provider models must use `"base_url": "http://localhost:8317/v1"`, while Anthropic-provider (Claude) models must use `"base_url": "http://localhost:8317"` (no `/v1`). Then remove stale/duplicate `customModels` in `~/.factory/settings.json` and restart Droid so it reloads the updated model list. |
 | Authentication expired | Disconnect and reconnect the service in VibeProxy |
 | Port 8317 already in use | Quit any other instances of VibeProxy or CLIProxyAPI |
 | Gemini returns 401 errors | Verify your Google Cloud project has Gemini API enabled |
