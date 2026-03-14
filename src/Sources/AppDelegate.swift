@@ -434,6 +434,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
             enabled: serverManager.vercelGatewayEnabled,
             apiKey: serverManager.vercelApiKey
         )
+        thinkingProxy.forceFastServiceTier = serverManager.forceFastServiceTier
     }
 
     // MARK: - UNUserNotificationCenterDelegate

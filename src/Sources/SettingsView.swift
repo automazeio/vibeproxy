@@ -109,6 +109,21 @@ struct VercelGatewayControls: View {
     }
 }
 
+struct RequestDefaultsControls: View {
+    @ObservedObject var serverManager: ServerManager
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle(isOn: $serverManager.forceFastServiceTier) {
+                Text("Force fast tier for GPT requests")
+                    .font(.caption)
+            }
+            .toggleStyle(.checkbox)
+            .help("When enabled, VibeProxy injects Codex fast-mode service_tier into supported GPT and o-series Responses API requests when the client did not already specify a service tier.")
+        }
+    }
+}
+
 /// A row displaying a service with its connected accounts and add button
 struct ServiceRow<ExtraContent: View>: View {
     let serviceType: ServiceType
@@ -371,7 +386,9 @@ struct SettingsView: View {
                         onToggleDisabled: { account in toggleAccountDisabled(account) },
                         onToggleEnabled: { enabled in serverManager.setProviderEnabled("codex", enabled: enabled) },
                         onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
-                    ) { EmptyView() }
+                    ) {
+                        RequestDefaultsControls(serverManager: serverManager)
+                    }
 
                     ServiceRow(
                         serviceType: .gemini,

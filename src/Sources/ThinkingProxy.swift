@@ -31,6 +31,7 @@ class ThinkingProxy {
     private let stateQueue = DispatchQueue(label: "io.automaze.vibeproxy.thinking-proxy-state")
 
     var vercelConfig = VercelGatewayConfig(enabled: false, apiKey: "")
+    var forceFastServiceTier = false
     
     private enum Config {
         static let hardTokenCap = 32000
@@ -38,6 +39,11 @@ class ThinkingProxy {
         static let headroomRatio = 0.1
         static let vercelGatewayHost = "ai-gateway.vercel.sh"
         static let anthropicVersion = "2023-06-01"
+        static let fastTierEligibleResponsePaths: Set<String> = [
+            "/v1/responses",
+            "/api/v1/responses"
+        ]
+        static let fastTierEligibleModelPrefixes = ["gpt-", "o1", "o3", "o4"]
     }
     
     /**
@@ -268,9 +274,12 @@ class ThinkingProxy {
                 modifiedBody = result.0
                 thinkingEnabled = result.1
             }
-            // Strip cache_control fields that cause 400 errors via the OAuth route
+            // Strip cache_control fields that cause 400 errors via the OAuth route.
             if let stripped = stripCacheControl(from: modifiedBody) {
                 modifiedBody = stripped
+            }
+            if let result = processOpenAIRequestDefaults(jsonString: modifiedBody, path: rewrittenPath) {
+                modifiedBody = result
             }
         }
         
@@ -449,6 +458,49 @@ class ThinkingProxy {
         }
         
         return (jsonString, false)  // No transformation needed
+    }
+
+    /**
+     Injects request defaults for supported GPT/o-series Responses API requests.
+     Currently this only injects the OpenAI wire value for Codex fast mode when
+     enabled and when the client did not explicitly set a service tier.
+     */
+    private func processOpenAIRequestDefaults(jsonString: String, path: String) -> String? {
+        guard forceFastServiceTier,
+              isFastTierEligibleResponsePath(path),
+              let jsonData = jsonString.data(using: .utf8),
+              var json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+              let model = json["model"] as? String else {
+            return nil
+        }
+
+        guard isFastTierEligibleModel(model) else {
+            return jsonString
+        }
+
+        if json["service_tier"] != nil {
+            return jsonString
+        }
+
+        json["service_tier"] = "priority"
+        NSLog("[ThinkingProxy] Injected service_tier=priority for model '\(model)' on path \(path)")
+
+        if let modifiedData = try? JSONSerialization.data(withJSONObject: json),
+           let modifiedString = String(data: modifiedData, encoding: .utf8) {
+            return modifiedString
+        }
+
+        return jsonString
+    }
+
+    private func isFastTierEligibleResponsePath(_ path: String) -> Bool {
+        let normalizedPath = path.split(separator: "?").first.map(String.init) ?? path
+        return Config.fastTierEligibleResponsePaths.contains(normalizedPath)
+    }
+
+    private func isFastTierEligibleModel(_ model: String) -> Bool {
+        let normalizedModel = model.lowercased()
+        return Config.fastTierEligibleModelPrefixes.contains { normalizedModel.starts(with: $0) }
     }
     
     /**
