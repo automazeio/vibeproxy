@@ -69,6 +69,12 @@ class ServerManager: ObservableObject {
             onVercelConfigChanged?()
         }
     }
+    @Published var forceFastServiceTier: Bool = false {
+        didSet {
+            UserDefaults.standard.set(forceFastServiceTier, forKey: "forceFastServiceTier")
+            onVercelConfigChanged?()
+        }
+    }
     var onVercelConfigChanged: (() -> Void)?
 
     /// Helper class to capture output text across closures
@@ -104,6 +110,7 @@ class ServerManager: ObservableObject {
         }
         vercelGatewayEnabled = UserDefaults.standard.bool(forKey: "vercelGatewayEnabled")
         vercelApiKey = UserDefaults.standard.string(forKey: "vercelApiKey") ?? ""
+        forceFastServiceTier = UserDefaults.standard.bool(forKey: "forceFastServiceTier")
     }
 
     /// Check if a provider is enabled (defaults to true if not set)
