@@ -13,6 +13,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
     private let notificationCenter = UNUserNotificationCenter.current()
     private var notificationPermissionGranted = false
     private let updaterController: SPUStandardUpdaterController
+    private var authFileMonitor: DispatchSourceFileSystemObject?
+    private var pendingAuthRefresh: DispatchWorkItem?
     
     override init() {
         self.updaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
@@ -49,6 +51,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
             self,
             selector: #selector(updateMenuBarStatus),
             name: .serverStatusChanged,
+            object: nil
+        )
+
+        // Monitor auth directory for credential file changes (app-lifetime scope)
+        startMonitoringAuthDirectory()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAuthDirectoryChanged),
+            name: .authDirectoryChanged,
             object: nil
         )
     }
@@ -151,6 +162,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
         copyURLItem.isEnabled = false
         copyURLItem.tag = 102
         menu.addItem(copyURLItem)
+
+        // Open Dashboard
+        let dashboardItem = NSMenuItem(title: "Open Dashboard", action: #selector(openDashboard), keyEquivalent: "d")
+        dashboardItem.isEnabled = false
+        dashboardItem.tag = 103
+        menu.addItem(dashboardItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -271,6 +288,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
         showNotification(title: "Copied", body: "Server URL copied to clipboard")
     }
 
+    @objc func openDashboard() {
+        if let url = URL(string: "http://localhost:8318/management.html") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    @objc func handleAuthDirectoryChanged() {
+        NSLog("[AppDelegate] Auth directory changed notification received — refreshing settings")
+        // Re-open settings window if it exists so the user sees the new account
+        if let window = settingsWindow {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
     @objc func updateMenuBarStatus() {
         // Update status items
         if let serverStatus = menu.item(at: 0) {
@@ -284,6 +316,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
 
         if let copyURLItem = menu.item(withTag: 102) {
             copyURLItem.isEnabled = serverManager.isRunning
+        }
+
+        if let dashboardItem = menu.item(withTag: 103) {
+            dashboardItem.isEnabled = serverManager.isRunning
         }
 
         // Update icon based on server status
@@ -336,6 +372,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
 
     func applicationWillTerminate(_ notification: Notification) {
         NotificationCenter.default.removeObserver(self, name: .serverStatusChanged, object: nil)
+        NotificationCenter.default.removeObserver(self, name: .authDirectoryChanged, object: nil)
+        pendingAuthRefresh?.cancel()
+        authFileMonitor?.cancel()
+        authFileMonitor = nil
         // Final cleanup - stop server if still running
         if serverManager.isRunning {
             thinkingProxy.stop()
@@ -354,6 +394,39 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
         return .terminateNow
     }
     
+    // MARK: - Auth Directory Monitoring
+
+    private func startMonitoringAuthDirectory() {
+        let authDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cli-proxy-api")
+        try? FileManager.default.createDirectory(at: authDir, withIntermediateDirectories: true)
+
+        let fileDescriptor = open(authDir.path, O_EVTONLY)
+        guard fileDescriptor >= 0 else { return }
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fileDescriptor,
+            eventMask: [.write, .delete, .rename],
+            queue: DispatchQueue.main
+        )
+
+        source.setEventHandler { [weak self] in
+            self?.pendingAuthRefresh?.cancel()
+            let workItem = DispatchWorkItem {
+                NSLog("[AppDelegate] Auth directory changed — posting notification")
+                NotificationCenter.default.post(name: .authDirectoryChanged, object: nil)
+            }
+            self?.pendingAuthRefresh = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: workItem)
+        }
+
+        source.setCancelHandler {
+            close(fileDescriptor)
+        }
+
+        source.resume()
+        authFileMonitor = source
+    }
+
     // MARK: - Vercel Config Sync
 
     private func syncVercelConfig() {

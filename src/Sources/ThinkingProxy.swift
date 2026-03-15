@@ -274,6 +274,10 @@ class ThinkingProxy {
                 modifiedBody = result.0
                 thinkingEnabled = result.1
             }
+            // Strip cache_control fields that cause 400 errors via the OAuth route.
+            if let stripped = stripCacheControl(from: modifiedBody) {
+                modifiedBody = stripped
+            }
             if let result = processOpenAIRequestDefaults(jsonString: modifiedBody, path: rewrittenPath) {
                 modifiedBody = result
             }
@@ -294,6 +298,55 @@ class ThinkingProxy {
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let model = json["model"] as? String else { return false }
         return model.starts(with: "claude-") || model.starts(with: "gemini-claude-")
+    }
+
+    /// Strips `cache_control` fields from the request body that cause 400 errors via the OAuth route
+    private func stripCacheControl(from jsonString: String) -> String? {
+        guard let jsonData = jsonString.data(using: .utf8),
+              var json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+            return nil
+        }
+
+        var modified = false
+
+        func stripFromDictArray(_ array: inout [[String: Any]]) {
+            for i in array.indices {
+                if array[i]["cache_control"] != nil {
+                    array[i].removeValue(forKey: "cache_control")
+                    modified = true
+                }
+                // Recurse into nested content arrays
+                if var nested = array[i]["content"] as? [[String: Any]] {
+                    stripFromDictArray(&nested)
+                    array[i]["content"] = nested
+                }
+            }
+        }
+
+        if var system = json["system"] as? [[String: Any]] {
+            stripFromDictArray(&system)
+            if modified { json["system"] = system }
+        }
+
+        if var messages = json["messages"] as? [[String: Any]] {
+            stripFromDictArray(&messages)
+            if modified { json["messages"] = messages }
+        }
+
+        if var tools = json["tools"] as? [[String: Any]] {
+            stripFromDictArray(&tools)
+            if modified { json["tools"] = tools }
+        }
+
+        guard modified else { return nil }
+
+        guard let modifiedData = try? JSONSerialization.data(withJSONObject: json),
+              let modifiedString = String(data: modifiedData, encoding: .utf8) else {
+            return nil
+        }
+
+        NSLog("[ThinkingProxy] Stripped cache_control fields from request body")
+        return modifiedString
     }
     
     /**
@@ -338,14 +391,22 @@ class ThinkingProxy {
                 if effectiveBudget != budget {
                     NSLog("[ThinkingProxy] Adjusted thinking budget from \(budget) to \(effectiveBudget) to stay within limits")
                 }
-                // Add thinking parameter
-                json["thinking"] = [
-                    "type": "enabled",
-                    "budget_tokens": effectiveBudget
-                ]
+
+                // Claude Opus 4.6+ requires adaptive thinking; older models use enabled+budget_tokens
+                let isAdaptiveModel = cleanModel.contains("opus-4-6") || cleanModel.contains("opus-4-7")
+                if isAdaptiveModel {
+                    json["thinking"] = ["type": "adaptive"]
+                    NSLog("[ThinkingProxy] Using adaptive thinking for model '\(cleanModel)'")
+                } else {
+                    json["thinking"] = [
+                        "type": "enabled",
+                        "budget_tokens": effectiveBudget
+                    ]
+                }
                 
                 // Ensure max token limits are greater than the thinking budget
                 // Claude requires: max_output_tokens (or legacy max_tokens) > thinking.budget_tokens
+                // (only relevant for non-adaptive models, but safe to set for all)
                 let tokenHeadroom = max(Config.minimumHeadroom, Int(Double(effectiveBudget) * Config.headroomRatio))
                 let desiredMaxTokens = effectiveBudget + tokenHeadroom
                 var requiredMaxTokens = min(desiredMaxTokens, Config.hardTokenCap)
