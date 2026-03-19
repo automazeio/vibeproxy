@@ -1,6 +1,14 @@
 import Foundation
 import Network
 
+private struct UsageStats {
+    var startedAt: Date = Date()
+    var totalRequests: Int = 0
+    var endpointCounts: [String: Int] = [:]
+    var providerCounts: [String: Int] = [:]
+    var modelCounts: [String: Int] = [:]
+}
+
 /**
  A lightweight HTTP proxy that intercepts requests to add extended thinking parameters
  for Claude models based on model name suffixes.
@@ -29,8 +37,19 @@ class ThinkingProxy {
     private let targetHost = "127.0.0.1"
     private(set) var isRunning = false
     private let stateQueue = DispatchQueue(label: "io.automaze.vibeproxy.thinking-proxy-state")
+    private let usageQueue = DispatchQueue(label: "io.automaze.vibeproxy.thinking-proxy-usage")
+    private var usageStats = UsageStats()
 
     var vercelConfig = VercelGatewayConfig(enabled: false, apiKey: "")
+    let modelGroupRouter = ModelGroupRouter()
+
+    private static let statusDateFormatters: [ISO8601DateFormatter] = {
+        let withFractional = ISO8601DateFormatter()
+        withFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let standard = ISO8601DateFormatter()
+        standard.formatOptions = [.withInternetDateTime]
+        return [withFractional, standard]
+    }()
     
     private enum Config {
         static let hardTokenCap = 32000
@@ -230,6 +249,11 @@ class ThinkingProxy {
         
         let bodyStart = requestString.distance(from: requestString.startIndex, to: bodyStartRange.upperBound)
         let bodyString = String(requestString[requestString.index(requestString.startIndex, offsetBy: bodyStart)...])
+
+        // Local diagnostics endpoints (handled by VibeProxy directly)
+        if handleLocalStatusApi(method: method, path: path, connection: connection) {
+            return
+        }
         
         // Redirect Amp CLI login directly to ampcode.com to preserve auth state cookies
         if path.starts(with: "/auth/cli-login") || path.starts(with: "/api/auth/cli-login") {
@@ -273,6 +297,27 @@ class ThinkingProxy {
                 modifiedBody = stripped
             }
         }
+
+        // Process OpenAI reasoning effort suffix (e.g., gpt-5-reasoning-high)
+        if method == "POST" && !modifiedBody.isEmpty {
+            if let result = processReasoningEffort(jsonString: modifiedBody) {
+                modifiedBody = result
+            }
+        }
+
+        // Resolve model group — rewrite model name to real model via round-robin
+        var modelGroupContext: (groupId: UUID, triedModels: Set<String>)? = nil
+        if method == "POST" && !modifiedBody.isEmpty {
+            if let resolved = resolveModelGroup(body: modifiedBody) {
+                modifiedBody = resolved.rewrittenBody
+                modelGroupContext = (resolved.groupId, [resolved.realModel])
+                NSLog("[ThinkingProxy] Model group resolved: '\(resolved.groupName)' → '\(resolved.realModel)'")
+            }
+        }
+
+        if isCliProxyUsagePath(rewrittenPath) {
+            recordUsage(method: method, path: rewrittenPath, body: modifiedBody)
+        }
         
         // Route Claude requests through Vercel AI Gateway when configured
         if vercelConfig.isActive && method == "POST" && isClaudeModelRequest(body: modifiedBody) {
@@ -280,8 +325,279 @@ class ThinkingProxy {
             forwardToVercel(method: method, path: "/v1/messages", version: httpVersion, headers: headers, body: modifiedBody, thinkingEnabled: thinkingEnabled, originalConnection: connection)
             return
         }
-        
-        forwardRequest(method: method, path: rewrittenPath, version: httpVersion, headers: headers, body: modifiedBody, thinkingEnabled: thinkingEnabled, originalConnection: connection)
+
+        // Intercept /v1/models to inject model groups
+        if method == "GET" && (rewrittenPath == "/v1/models" || rewrittenPath == "/api/v1/models") {
+            let groupNames = modelGroupRouter.activeGroupNames()
+            if !groupNames.isEmpty {
+                forwardRequestAndInjectModels(method: method, path: rewrittenPath, version: httpVersion, headers: headers, body: modifiedBody, groupNames: groupNames, originalConnection: connection)
+                return
+            }
+        }
+
+        forwardRequest(method: method, path: rewrittenPath, version: httpVersion, headers: headers, body: modifiedBody, thinkingEnabled: thinkingEnabled, originalConnection: connection, modelGroupContext: modelGroupContext)
+    }
+
+    private func handleLocalStatusApi(method: String, path: String, connection: NWConnection) -> Bool {
+        let cleanPath = path.components(separatedBy: "?").first ?? path
+
+        if cleanPath == "/vibe/status" {
+            guard method == "GET" else {
+                sendError(to: connection, statusCode: 405, message: "Method Not Allowed")
+                return true
+            }
+
+            let payload = buildStatusPayload()
+            sendJSON(to: connection, payload: payload)
+            return true
+        }
+
+        if cleanPath == "/vibe/usage" {
+            guard method == "GET" else {
+                sendError(to: connection, statusCode: 405, message: "Method Not Allowed")
+                return true
+            }
+
+            let payload = buildUsagePayload()
+            sendJSON(to: connection, payload: payload)
+            return true
+        }
+
+        if cleanPath == "/vibe/usage/reset" {
+            guard method == "POST" else {
+                sendError(to: connection, statusCode: 405, message: "Method Not Allowed")
+                return true
+            }
+
+            usageQueue.sync {
+                usageStats = UsageStats()
+            }
+            sendJSON(to: connection, payload: ["ok": true, "message": "usage counters reset"])
+            return true
+        }
+
+        return false
+    }
+
+    private func sendJSON(to connection: NWConnection, payload: [String: Any]) {
+        guard JSONSerialization.isValidJSONObject(payload),
+              let bodyData = try? JSONSerialization.data(withJSONObject: payload),
+              let headers = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \(bodyData.count)\r\nConnection: close\r\n\r\n".data(using: .utf8) else {
+            sendError(to: connection, statusCode: 500, message: "Internal Server Error")
+            return
+        }
+
+        var responseData = Data()
+        responseData.append(headers)
+        responseData.append(bodyData)
+
+        connection.send(content: responseData, completion: .contentProcessed({ _ in
+            connection.cancel()
+        }))
+    }
+
+    private func isCliProxyUsagePath(_ path: String) -> Bool {
+        path.starts(with: "/v1/") || path.starts(with: "/api/v1/")
+    }
+
+    private func normalizedEndpoint(_ path: String) -> String {
+        let noQuery = path.components(separatedBy: "?").first ?? path
+        if noQuery.starts(with: "/api/") {
+            return String(noQuery.dropFirst(4))
+        }
+        return noQuery
+    }
+
+    private func extractModel(from body: String) -> String? {
+        guard let data = body.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let model = json["model"] as? String,
+              !model.isEmpty else {
+            return nil
+        }
+        return model
+    }
+
+    private func providerForModel(_ model: String?) -> String {
+        guard let model else { return "unknown" }
+        let lower = model.lowercased()
+        if lower.starts(with: "claude-") { return "claude" }
+        if lower.starts(with: "gpt-") || lower.contains("codex") || lower.starts(with: "o3") || lower.starts(with: "o4") { return "codex" }
+        if lower.starts(with: "gemini-") {
+            if lower.starts(with: "gemini-claude-") {
+                return "antigravity"
+            }
+            return "gemini"
+        }
+        if lower.starts(with: "qwen") { return "qwen" }
+        if lower.starts(with: "glm") { return "zai" }
+        if lower.starts(with: "amazonq") || lower.contains("copilot") { return "github-copilot" }
+        return "other"
+    }
+
+    private func recordUsage(method: String, path: String, body: String) {
+        let endpoint = "\(method.uppercased()) \(normalizedEndpoint(path))"
+        let model = extractModel(from: body)
+        let provider = providerForModel(model)
+
+        usageQueue.async {
+            self.usageStats.totalRequests += 1
+            self.usageStats.endpointCounts[endpoint, default: 0] += 1
+            self.usageStats.providerCounts[provider, default: 0] += 1
+            if let model {
+                self.usageStats.modelCounts[model, default: 0] += 1
+            }
+        }
+    }
+
+    /// Thread-safe snapshot of per-provider request counts.
+    func providerRequestCounts() -> [String: Int] {
+        usageQueue.sync { usageStats.providerCounts }
+    }
+
+    private func buildUsagePayload() -> [String: Any] {
+        let snapshot = usageQueue.sync { usageStats }
+        let accounts = loadAuthAccounts()
+        let grouped = Dictionary(grouping: accounts) { $0.type }
+
+        var rotation: [String: Any] = [:]
+        for (provider, providerAccounts) in grouped {
+            let active = providerAccounts.filter { !$0.isExpired }.sorted { $0.id < $1.id }
+            guard active.count > 1 else { continue }
+            let count = snapshot.providerCounts[provider] ?? 0
+            let lastIdx = count > 0 ? (count - 1) % active.count : nil
+            let nextIdx = count % active.count
+            rotation[provider] = [
+                "last_used": lastIdx.map { active[$0].displayName } as Any,
+                "next": active[nextIdx].displayName,
+                "request_count": count,
+                "active_accounts": active.count
+            ]
+        }
+
+        return [
+            "started_at": iso8601(snapshot.startedAt),
+            "generated_at": iso8601(Date()),
+            "total_requests": snapshot.totalRequests,
+            "endpoint_counts": snapshot.endpointCounts,
+            "provider_counts": snapshot.providerCounts,
+            "model_counts": snapshot.modelCounts,
+            "account_rotation": rotation,
+            "note": "Counts are based on inbound proxy requests (not confirmed backend account selection)."
+        ]
+    }
+
+    private func buildStatusPayload() -> [String: Any] {
+        let accounts = loadAuthAccounts()
+        let grouped = Dictionary(grouping: accounts) { $0.type }
+
+        var byProvider: [String: Any] = [:]
+        for (provider, providerAccounts) in grouped {
+            let active = providerAccounts.filter { !$0.isExpired }
+            let expired = providerAccounts.filter { $0.isExpired }
+
+            byProvider[provider] = [
+                "total": providerAccounts.count,
+                "active": active.count,
+                "expired": expired.count,
+                "accounts": providerAccounts.map { account in
+                    var entry: [String: Any] = [
+                        "id": account.id,
+                        "display_name": account.displayName,
+                        "expired": account.isExpired,
+                        "file": account.fileName
+                    ]
+                    if let date = account.expired {
+                        entry["expires_at"] = iso8601(date)
+                    }
+                    return entry
+                }
+            ]
+        }
+
+        let total = accounts.count
+        let activeTotal = accounts.filter { !$0.isExpired }.count
+
+        return [
+            "generated_at": iso8601(Date()),
+            "proxy": [
+                "host": "127.0.0.1",
+                "port": proxyPort,
+                "target_port": targetPort,
+                "running": isRunning
+            ],
+            "accounts": [
+                "total": total,
+                "active": activeTotal,
+                "expired": total - activeTotal,
+                "providers": byProvider
+            ]
+        ]
+    }
+
+    private struct LocalAuthAccount {
+        let id: String
+        let fileName: String
+        let type: String
+        let email: String?
+        let login: String?
+        let expired: Date?
+
+        var isExpired: Bool {
+            guard let expired else { return false }
+            return expired < Date()
+        }
+
+        var displayName: String {
+            if let email, !email.isEmpty { return email }
+            if let login, !login.isEmpty { return login }
+            return id
+        }
+    }
+
+    private func loadAuthAccounts() -> [LocalAuthAccount] {
+        let authDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cli-proxy-api")
+        guard let files = try? FileManager.default.contentsOfDirectory(at: authDir, includingPropertiesForKeys: nil) else {
+            return []
+        }
+
+        var accounts: [LocalAuthAccount] = []
+
+        for file in files where file.pathExtension == "json" {
+            guard let data = try? Data(contentsOf: file),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let type = json["type"] as? String else {
+                continue
+            }
+
+            let expiredString = json["expired"] as? String
+            let expiredDate = parseDate(expiredString)
+
+            accounts.append(LocalAuthAccount(
+                id: file.lastPathComponent,
+                fileName: file.lastPathComponent,
+                type: type.lowercased(),
+                email: json["email"] as? String,
+                login: json["login"] as? String,
+                expired: expiredDate
+            ))
+        }
+
+        return accounts.sorted { $0.type < $1.type }
+    }
+
+    private func parseDate(_ value: String?) -> Date? {
+        guard let value else { return nil }
+        for formatter in Self.statusDateFormatters {
+            if let date = formatter.date(from: value) {
+                return date
+            }
+        }
+        return nil
+    }
+
+    private func iso8601(_ date: Date) -> String {
+        ISO8601DateFormatter().string(from: date)
     }
     
     private func isClaudeModelRequest(body: String) -> Bool {
@@ -451,6 +767,103 @@ class ThinkingProxy {
         return (jsonString, false)  // No transformation needed
     }
     
+    // MARK: - OpenAI Reasoning Effort
+
+    private static let validReasoningEfforts: Set<String> = ["none", "minimal", "low", "medium", "high", "xhigh"]
+
+    /// Processes the JSON body to add reasoning effort if model name has a `-reasoning-LEVEL` suffix.
+    /// E.g. `gpt-5.3-codex-reasoning-high` → strips suffix, injects `{"reasoning": {"effort": "high"}}`.
+    private func processReasoningEffort(jsonString: String) -> String? {
+        guard let jsonData = jsonString.data(using: .utf8),
+              var json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+              let model = json["model"] as? String else {
+            return nil
+        }
+
+        // Skip Claude models (handled by processThinkingParameter)
+        guard !model.starts(with: "claude-") && !model.starts(with: "gemini-claude-") else {
+            return nil
+        }
+
+        // Check for -reasoning-LEVEL suffix
+        let reasoningPrefix = "-reasoning-"
+        guard let range = model.range(of: reasoningPrefix, options: .backwards),
+              range.upperBound < model.endIndex else {
+            return nil
+        }
+
+        let effort = String(model[range.upperBound...]).lowercased()
+        guard Self.validReasoningEfforts.contains(effort) else {
+            NSLog("[ThinkingProxy] Invalid reasoning effort '\(effort)' in model '\(model)'")
+            return nil
+        }
+
+        let cleanModel = String(model[..<range.lowerBound])
+        json["model"] = cleanModel
+        json["reasoning"] = ["effort": effort]
+
+        NSLog("[ThinkingProxy] Transformed model '\(model)' → '\(cleanModel)' with reasoning effort '\(effort)'")
+
+        guard let modifiedData = try? JSONSerialization.data(withJSONObject: json),
+              let modifiedString = String(data: modifiedData, encoding: .utf8) else {
+            return nil
+        }
+        return modifiedString
+    }
+
+    // MARK: - Model Group Resolution
+
+    private struct ModelGroupResolution {
+        let groupName: String
+        let groupId: UUID
+        let realModel: String
+        let rewrittenBody: String
+    }
+
+    private func resolveModelGroup(body: String) -> ModelGroupResolution? {
+        guard let data = body.data(using: .utf8),
+              var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let model = json["model"] as? String else {
+            return nil
+        }
+        guard let resolved = modelGroupRouter.resolveModel(model) else { return nil }
+
+        // Strip provider prefix (e.g., "github-copilot/claude-opus-4-6" → "claude-opus-4-6")
+        let realModel: String
+        if let slashIndex = resolved.realModel.firstIndex(of: "/") {
+            realModel = String(resolved.realModel[resolved.realModel.index(after: slashIndex)...])
+        } else {
+            realModel = resolved.realModel
+        }
+
+        json["model"] = realModel
+        guard let modifiedData = try? JSONSerialization.data(withJSONObject: json),
+              let modifiedString = String(data: modifiedData, encoding: .utf8) else {
+            return nil
+        }
+        return ModelGroupResolution(groupName: model, groupId: resolved.groupId, realModel: realModel, rewrittenBody: modifiedString)
+    }
+
+    private func rewriteModelInBody(_ body: String, to newModel: String) -> String? {
+        guard let data = body.data(using: .utf8),
+              var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        // Strip provider prefix if present
+        let modelId: String
+        if let slashIndex = newModel.firstIndex(of: "/") {
+            modelId = String(newModel[newModel.index(after: slashIndex)...])
+        } else {
+            modelId = newModel
+        }
+        json["model"] = modelId
+        guard let modified = try? JSONSerialization.data(withJSONObject: json),
+              let result = String(data: modified, encoding: .utf8) else {
+            return nil
+        }
+        return result
+    }
+
     /**
      Forwards Amp API requests to ampcode.com, stripping the /api/ prefix
      */
@@ -694,7 +1107,7 @@ class ThinkingProxy {
     /**
      Forwards the request to CLIProxyAPI on port 8318 (pass-through for non-thinking requests)
      */
-    private func forwardRequest(method: String, path: String, version: String, headers: [(String, String)], body: String, thinkingEnabled: Bool = false, originalConnection: NWConnection, retryWithApiPrefix: Bool = false) {
+    private func forwardRequest(method: String, path: String, version: String, headers: [(String, String)], body: String, thinkingEnabled: Bool = false, originalConnection: NWConnection, retryWithApiPrefix: Bool = false, modelGroupContext: (groupId: UUID, triedModels: Set<String>)? = nil) {
         // Create connection to CLIProxyAPI
         guard let port = NWEndpoint.Port(rawValue: targetPort) else {
             NSLog("[ThinkingProxy] Invalid target port: %d", targetPort)
@@ -762,10 +1175,19 @@ class ThinkingProxy {
                             targetConnection.cancel()
                             originalConnection.cancel()
                         } else {
-                            // Receive response from CLIProxyAPI (with 404 retry capability)
-                            if retryWithApiPrefix {
-                                self.receiveResponseWith404Retry(from: targetConnection, originalConnection: originalConnection, 
-                                                                 method: method, path: path, version: version, 
+                            // Receive response from CLIProxyAPI
+                            if let groupCtx = modelGroupContext {
+                                self.receiveResponseWithGroupFailover(
+                                    from: targetConnection,
+                                    originalConnection: originalConnection,
+                                    method: method, path: path, version: version,
+                                    headers: headers, body: body,
+                                    thinkingEnabled: thinkingEnabled,
+                                    groupContext: groupCtx
+                                )
+                            } else if retryWithApiPrefix {
+                                self.receiveResponseWith404Retry(from: targetConnection, originalConnection: originalConnection,
+                                                                 method: method, path: path, version: version,
                                                                  headers: headers, body: body)
                             } else {
                                 self.receiveResponse(from: targetConnection, originalConnection: originalConnection)
@@ -906,6 +1328,224 @@ class ThinkingProxy {
         }
     }
     
+    // MARK: - Model Group /v1/models Injection
+
+    private func forwardRequestAndInjectModels(method: String, path: String, version: String, headers: [(String, String)], body: String, groupNames: [String], originalConnection: NWConnection) {
+        guard let port = NWEndpoint.Port(rawValue: targetPort) else {
+            sendError(to: originalConnection, statusCode: 500, message: "Internal Server Error")
+            return
+        }
+        let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(targetHost), port: port)
+        let targetConnection = NWConnection(to: endpoint, using: NWParameters.tcp)
+
+        targetConnection.stateUpdateHandler = { state in
+            switch state {
+            case .ready:
+                var req = "\(method) \(path) \(version)\r\n"
+                let excluded: Set<String> = ["content-length", "host", "transfer-encoding"]
+                for (name, value) in headers where !excluded.contains(name.lowercased()) {
+                    req += "\(name): \(value)\r\n"
+                }
+                req += "Host: \(self.targetHost):\(self.targetPort)\r\n"
+                req += "Connection: close\r\n"
+                let contentLength = body.utf8.count
+                req += "Content-Length: \(contentLength)\r\n\r\n\(body)"
+
+                if let data = req.data(using: .utf8) {
+                    targetConnection.send(content: data, completion: .contentProcessed({ error in
+                        if let error = error {
+                            NSLog("[ThinkingProxy] Models inject send error: \(error)")
+                            targetConnection.cancel()
+                            originalConnection.cancel()
+                        } else {
+                            self.bufferFullResponse(from: targetConnection) { responseData in
+                                guard let responseData = responseData else {
+                                    self.sendError(to: originalConnection, statusCode: 502, message: "Bad Gateway")
+                                    return
+                                }
+                                let injected = self.injectGroupModels(into: responseData, groupNames: groupNames)
+                                originalConnection.send(content: injected, completion: .contentProcessed({ _ in
+                                    originalConnection.send(content: nil, isComplete: true, completion: .contentProcessed({ _ in
+                                        originalConnection.cancel()
+                                    }))
+                                }))
+                            }
+                        }
+                    }))
+                }
+            case .failed(let error):
+                NSLog("[ThinkingProxy] Models inject connection failed: \(error)")
+                self.sendError(to: originalConnection, statusCode: 502, message: "Bad Gateway")
+                targetConnection.cancel()
+            default: break
+            }
+        }
+        targetConnection.start(queue: .global(qos: .userInitiated))
+    }
+
+    private func bufferFullResponse(from connection: NWConnection, accumulated: Data = Data(), completion: @escaping (Data?) -> Void) {
+        // Guard against unbounded buffering (4 MB max for /v1/models responses)
+        if accumulated.count > 4 * 1024 * 1024 {
+            NSLog("[ThinkingProxy] Buffer response exceeded 4 MB limit")
+            connection.cancel()
+            completion(nil)
+            return
+        }
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, isComplete, error in
+            if let error = error {
+                NSLog("[ThinkingProxy] Buffer response error: \(error)")
+                connection.cancel()
+                completion(nil)
+                return
+            }
+            var buffer = accumulated
+            if let data = data { buffer.append(data) }
+            if isComplete {
+                connection.cancel()
+                completion(buffer)
+            } else {
+                self.bufferFullResponse(from: connection, accumulated: buffer, completion: completion)
+            }
+        }
+    }
+
+    private func injectGroupModels(into responseData: Data, groupNames: [String]) -> Data {
+        guard let responseStr = String(data: responseData, encoding: .utf8),
+              let headerEnd = responseStr.range(of: "\r\n\r\n") else {
+            return responseData
+        }
+
+        let headerSection = String(responseStr[responseStr.startIndex..<headerEnd.lowerBound])
+        let bodyStr = String(responseStr[headerEnd.upperBound...])
+        guard let bodyData = bodyStr.data(using: .utf8),
+              var json = try? JSONSerialization.jsonObject(with: bodyData) as? [String: Any],
+              var dataArray = json["data"] as? [[String: Any]] else {
+            return responseData
+        }
+
+        for name in groupNames {
+            dataArray.append([
+                "id": name,
+                "object": "model",
+                "created": Int(Date().timeIntervalSince1970),
+                "owned_by": "vibeproxy"
+            ])
+        }
+        json["data"] = dataArray
+
+        guard let newBody = try? JSONSerialization.data(withJSONObject: json),
+              let newBodyStr = String(data: newBody, encoding: .utf8) else {
+            return responseData
+        }
+
+        // Preserve original headers, only update Content-Length
+        var headerLines = headerSection.components(separatedBy: "\r\n")
+        headerLines = headerLines.map { line in
+            if line.lowercased().hasPrefix("content-length:") {
+                return "Content-Length: \(newBody.count)"
+            }
+            return line
+        }
+
+        let newResponse = headerLines.joined(separator: "\r\n") + "\r\n\r\n" + newBodyStr
+        return newResponse.data(using: .utf8) ?? responseData
+    }
+
+    // MARK: - Model Group Failover
+
+    private func receiveResponseWithGroupFailover(
+        from targetConnection: NWConnection,
+        originalConnection: NWConnection,
+        method: String, path: String, version: String,
+        headers: [(String, String)], body: String,
+        thinkingEnabled: Bool,
+        groupContext: (groupId: UUID, triedModels: Set<String>)
+    ) {
+        targetConnection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
+            guard let self = self else { return }
+
+            if let error = error {
+                NSLog("[ThinkingProxy] Group failover receive error: \(error)")
+                targetConnection.cancel()
+                self.sendError(to: originalConnection, statusCode: 502, message: "Bad Gateway")
+                return
+            }
+
+            guard let data = data, !data.isEmpty else {
+                if isComplete {
+                    targetConnection.cancel()
+                    originalConnection.send(content: nil, isComplete: true, completion: .contentProcessed({ _ in
+                        originalConnection.cancel()
+                    }))
+                }
+                return
+            }
+
+            let statusCode = self.extractHttpStatus(from: data)
+            let isRetryable = [429, 500, 502, 503].contains(statusCode)
+
+            if isRetryable {
+                NSLog("[ThinkingProxy] Model group got \(statusCode ?? 0), attempting failover")
+                targetConnection.cancel()
+                self.retryWithNextGroupModel(
+                    originalConnection: originalConnection,
+                    method: method, path: path, version: version,
+                    headers: headers, body: body,
+                    thinkingEnabled: thinkingEnabled,
+                    groupContext: groupContext
+                )
+            } else {
+                originalConnection.send(content: data, completion: .contentProcessed({ sendError in
+                    if let sendError = sendError {
+                        NSLog("[ThinkingProxy] Send response error: \(sendError)")
+                    }
+                    if isComplete {
+                        targetConnection.cancel()
+                        originalConnection.send(content: nil, isComplete: true, completion: .contentProcessed({ _ in
+                            originalConnection.cancel()
+                        }))
+                    } else {
+                        self.streamNextChunk(from: targetConnection, to: originalConnection)
+                    }
+                }))
+            }
+        }
+    }
+
+    private func retryWithNextGroupModel(
+        originalConnection: NWConnection,
+        method: String, path: String, version: String,
+        headers: [(String, String)], body: String,
+        thinkingEnabled: Bool,
+        groupContext: (groupId: UUID, triedModels: Set<String>)
+    ) {
+        guard let nextModel = modelGroupRouter.failoverModel(groupId: groupContext.groupId, excluding: groupContext.triedModels),
+              let rewrittenBody = rewriteModelInBody(body, to: nextModel) else {
+            NSLog("[ThinkingProxy] Model group exhausted all models, returning 503")
+            sendError(to: originalConnection, statusCode: 503, message: "All models in group exhausted")
+            return
+        }
+
+        NSLog("[ThinkingProxy] Model group failover → '\(nextModel)'")
+        var updatedContext = groupContext
+        updatedContext.triedModels.insert(nextModel)
+
+        forwardRequest(
+            method: method, path: path, version: version,
+            headers: headers, body: rewrittenBody,
+            thinkingEnabled: thinkingEnabled,
+            originalConnection: originalConnection,
+            modelGroupContext: updatedContext
+        )
+    }
+
+    private func extractHttpStatus(from data: Data) -> Int? {
+        guard let str = String(data: data.prefix(32), encoding: .utf8) else { return nil }
+        let parts = str.components(separatedBy: " ")
+        guard parts.count >= 2, let code = Int(parts[1]) else { return nil }
+        return code
+    }
+
     /**
      Sends an error response to the client
      */

@@ -4,17 +4,22 @@ import WebKit
 import UserNotifications
 import Sparkle
 
+@MainActor
 class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNotificationCenterDelegate {
     var statusItem: NSStatusItem!
     var menu: NSMenu!
     weak var settingsWindow: NSWindow?
     var serverManager: ServerManager!
     var thinkingProxy: ThinkingProxy!
+    let authManager = AuthManager()
+    let codexUsageManager = CodexUsageManager()
+    let claudeUsageManager = ClaudeUsageManager()
     private let notificationCenter = UNUserNotificationCenter.current()
     private var notificationPermissionGranted = false
     private let updaterController: SPUStandardUpdaterController
     private var authFileMonitor: DispatchSourceFileSystemObject?
     private var pendingAuthRefresh: DispatchWorkItem?
+    private var usageItemsController: MenuBarUsageItemsController?
     
     override init() {
         self.updaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
@@ -24,24 +29,40 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Setup standard Edit menu for keyboard shortcuts (Cmd+C/V/X/A)
         setupMainMenu()
-        
-        // Setup menu bar
-        setupMenuBar()
 
-        // Initialize managers
+        // Initialize managers early so menu bar can reference thinkingProxy
         serverManager = ServerManager()
         thinkingProxy = ThinkingProxy()
+
+        // Setup menu bar (needs thinkingProxy)
+        setupMenuBar()
 
         // Sync Vercel AI Gateway config from ServerManager to ThinkingProxy
         syncVercelConfig()
         serverManager.onVercelConfigChanged = { [weak self] in
             self?.syncVercelConfig()
         }
-        
+
+        // Sync Model Groups from ServerManager to ThinkingProxy
+        syncModelGroups()
+        serverManager.onModelGroupsChanged = { [weak self] in
+            self?.syncModelGroups()
+        }
+
         // Warm commonly used icons to avoid first-use disk hits
         preloadIcons()
         
         configureNotifications()
+
+        // Start auth scanning and usage polling
+        authManager.checkAuthStatus()
+        startUsagePolling()
+
+        // Monitor auth directory for account changes
+        NotificationCenter.default.addObserver(forName: .authDirectoryChanged, object: nil, queue: .main) { [weak self] _ in
+            self?.authManager.checkAuthStatus()
+            self?.startUsagePolling()
+        }
 
         // Start server automatically
         startServer()
@@ -126,6 +147,46 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
         NSApplication.shared.mainMenu = mainMenu
     }
     
+    private func startUsagePolling() {
+        codexUsageManager.startPolling(accounts: authManager.accounts(for: .codex))
+        claudeUsageManager.startPolling(accounts: authManager.accounts(for: .claude))
+    }
+
+    /// Check usage data and auto-disable accounts at 0%, auto-restore recovered ones.
+    /// Called from MenuBarUsageItemsController's 3s timer via a callback.
+    func checkAutoDisableAccounts() {
+        // Auto-disable active accounts with 0% remaining
+        for account in authManager.accounts(for: .claude).filter({ !$0.isExpired }) {
+            if let usage = claudeUsageManager.usage(for: account.id),
+               case .loaded = usage.status,
+               let remaining = usage.primaryRemainingPercent, remaining <= 0 {
+                _ = authManager.autoDisableAccount(account)
+            }
+        }
+        for account in authManager.accounts(for: .codex).filter({ !$0.isExpired }) {
+            if let usage = codexUsageManager.usage(for: account.id),
+               case .loaded = usage.status,
+               let remaining = usage.primaryRemainingPercent, remaining <= 0 {
+                _ = authManager.autoDisableAccount(account)
+            }
+        }
+
+        // Auto-restore accounts whose usage has recovered
+        // We need to poll usage for auto-disabled accounts too
+        for account in authManager.autoDisabledAccounts {
+            let usage: ProviderUsageData?
+            switch account.type {
+            case .claude: usage = claudeUsageManager.usage(for: account.id)
+            case .codex: usage = codexUsageManager.usage(for: account.id)
+            default: usage = nil
+            }
+            if let usage = usage, case .loaded = usage.status,
+               let remaining = usage.primaryRemainingPercent, remaining > 0 {
+                _ = authManager.autoRestoreAccount(account)
+            }
+        }
+    }
+
     func setupMenuBar() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
@@ -145,6 +206,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
         // Server Status
         menu.addItem(NSMenuItem(title: "Server: Stopped", action: nil, keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
+
+        // Usage items (plain disabled NSMenuItems, inserted after the separator)
+        // Controller will manage its own items at this index
+        let usageInsertIndex = menu.numberOfItems
+        usageItemsController = MenuBarUsageItemsController(
+            menu: menu,
+            insertionIndex: usageInsertIndex,
+            authManager: authManager,
+            codexUsageManager: codexUsageManager,
+            claudeUsageManager: claudeUsageManager,
+            thinkingProxy: thinkingProxy
+        )
+        usageItemsController?.onRefresh = { [weak self] in
+            self?.checkAutoDisableAccounts()
+        }
 
         // Main Actions
         menu.addItem(NSMenuItem(title: "Open Settings", action: #selector(openSettings), keyEquivalent: "s"))
@@ -206,7 +282,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
         window.delegate = self
         window.isReleasedWhenClosed = false
 
-        let contentView = SettingsView(serverManager: serverManager)
+        let contentView = SettingsView(
+            serverManager: serverManager,
+            authManager: authManager,
+            codexUsageManager: codexUsageManager,
+            claudeUsageManager: claudeUsageManager
+        )
         window.contentView = NSHostingView(rootView: contentView)
 
         settingsWindow = window
@@ -434,6 +515,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
             enabled: serverManager.vercelGatewayEnabled,
             apiKey: serverManager.vercelApiKey
         )
+    }
+
+    private func syncModelGroups() {
+        thinkingProxy.modelGroupRouter.updateGroups(serverManager.modelGroups)
     }
 
     // MARK: - UNUserNotificationCenterDelegate

@@ -71,6 +71,17 @@ class ServerManager: ObservableObject {
     }
     var onVercelConfigChanged: (() -> Void)?
 
+    @Published var modelGroups: [ModelGroup] = [] {
+        didSet {
+            if let data = try? JSONEncoder().encode(modelGroups) {
+                UserDefaults.standard.set(data, forKey: "modelGroups")
+            }
+            onModelGroupsChanged?()
+        }
+    }
+
+    var onModelGroupsChanged: (() -> Void)?
+
     /// Helper class to capture output text across closures
     private class OutputCapture {
         var text = ""
@@ -104,6 +115,10 @@ class ServerManager: ObservableObject {
         }
         vercelGatewayEnabled = UserDefaults.standard.bool(forKey: "vercelGatewayEnabled")
         vercelApiKey = UserDefaults.standard.string(forKey: "vercelApiKey") ?? ""
+        if let data = UserDefaults.standard.data(forKey: "modelGroups"),
+           let saved = try? JSONDecoder().decode([ModelGroup].self, from: data) {
+            modelGroups = saved
+        }
     }
 
     /// Check if a provider is enabled (defaults to true if not set)

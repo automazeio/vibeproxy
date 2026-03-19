@@ -88,6 +88,24 @@ When you click "Connect":
 - **Menu Bar Icon**: Shows active/inactive state
 - **Launch at Login**: Toggle to start VibeProxy automatically
 
+### Local Diagnostics API
+
+VibeProxy now exposes a small local diagnostics API on the same proxy port (`http://localhost:8317`):
+
+- `GET /vibe/status` - Account status snapshot from `~/.cli-proxy-api` (active/expired by provider)
+- `GET /vibe/usage` - Request counters since proxy start (by endpoint/provider/model)
+- `POST /vibe/usage/reset` - Reset usage counters
+
+Example:
+
+```bash
+curl http://localhost:8317/vibe/status
+curl http://localhost:8317/vibe/usage
+curl -X POST http://localhost:8317/vibe/usage/reset
+```
+
+> Note: Usage counts are based on inbound proxy requests and model names, not confirmed backend account selection.
+
 ## Requirements
 
 - macOS 13.0 (Ventura) or later

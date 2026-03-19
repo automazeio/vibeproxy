@@ -8,7 +8,7 @@ enum ServiceType: String, CaseIterable {
     case qwen
     case antigravity
     case zai
-    
+
     var displayName: String {
         switch self {
         case .claude: return "Claude Code"
@@ -30,7 +30,6 @@ struct AuthAccount: Identifiable, Equatable {
     let type: ServiceType
     let expired: Date?
     let filePath: URL
-    let isDisabled: Bool
     
     var isExpired: Bool {
         guard let expired = expired else { return false }
@@ -64,7 +63,11 @@ struct ServiceAccounts {
 
 class AuthManager: ObservableObject {
     @Published var serviceAccounts: [ServiceType: ServiceAccounts] = [:]
-    
+    /// Accounts manually disabled by the user (file moved to .disabled/)
+    @Published var manuallyDisabledAccounts: [AuthAccount] = []
+    /// Accounts auto-disabled due to 0% usage (file moved to .disabled/.auto/)
+    @Published var autoDisabledAccounts: [AuthAccount] = []
+
     private static let dateFormatters: [ISO8601DateFormatter] = {
         let withFractional = ISO8601DateFormatter()
         withFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -72,83 +75,147 @@ class AuthManager: ObservableObject {
         standard.formatOptions = [.withInternetDateTime]
         return [withFractional, standard]
     }()
-    
+
+    static let authDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cli-proxy-api")
+    private static let disabledDir = authDir.appendingPathComponent(".disabled")
+    private static let autoDisabledDir = disabledDir.appendingPathComponent(".auto")
+
     init() {
-        // Initialize empty accounts for all service types
         for type in ServiceType.allCases {
             serviceAccounts[type] = ServiceAccounts(type: type)
         }
+        ensureDisabledDirs()
     }
-    
+
     func accounts(for type: ServiceType) -> [AuthAccount] {
         serviceAccounts[type]?.accounts ?? []
     }
-    
+
     func hasAccounts(for type: ServiceType) -> Bool {
         serviceAccounts[type]?.hasAccounts ?? false
     }
-    
+
+    /// Check if an account is manually disabled
+    func isManuallyDisabled(_ account: AuthAccount) -> Bool {
+        manuallyDisabledAccounts.contains { $0.id == account.id }
+    }
+
+    /// Check if an account is auto-disabled (depleted)
+    func isAutoDisabled(_ account: AuthAccount) -> Bool {
+        autoDisabledAccounts.contains { $0.id == account.id }
+    }
+
+    /// Manually disable an account — moves file to .disabled/
+    func disableAccount(_ account: AuthAccount) -> Bool {
+        let dest = Self.disabledDir.appendingPathComponent(account.id)
+        do {
+            try FileManager.default.moveItem(at: account.filePath, to: dest)
+            NSLog("[AuthStatus] Disabled account: %@ → .disabled/", account.displayName)
+            checkAuthStatus()
+            return true
+        } catch {
+            NSLog("[AuthStatus] Failed to disable account %@: %@", account.displayName, error.localizedDescription)
+            return false
+        }
+    }
+
+    /// Re-enable a manually disabled account — moves file back
+    func enableAccount(_ account: AuthAccount) -> Bool {
+        let source = Self.disabledDir.appendingPathComponent(account.id)
+        let dest = Self.authDir.appendingPathComponent(account.id)
+        do {
+            try FileManager.default.moveItem(at: source, to: dest)
+            NSLog("[AuthStatus] Re-enabled account: %@ → active", account.displayName)
+            checkAuthStatus()
+            return true
+        } catch {
+            NSLog("[AuthStatus] Failed to re-enable account %@: %@", account.displayName, error.localizedDescription)
+            return false
+        }
+    }
+
+    /// Auto-disable a depleted account (0% usage) — moves to .disabled/.auto/
+    func autoDisableAccount(_ account: AuthAccount) -> Bool {
+        // Don't auto-disable if already manually disabled
+        guard !isManuallyDisabled(account) else { return false }
+        let dest = Self.autoDisabledDir.appendingPathComponent(account.id)
+        do {
+            try FileManager.default.moveItem(at: account.filePath, to: dest)
+            NSLog("[AuthStatus] Auto-disabled depleted account: %@", account.displayName)
+            checkAuthStatus()
+            return true
+        } catch {
+            NSLog("[AuthStatus] Failed to auto-disable account %@: %@", account.displayName, error.localizedDescription)
+            return false
+        }
+    }
+
+    /// Restore an auto-disabled account when usage recovers
+    func autoRestoreAccount(_ account: AuthAccount) -> Bool {
+        let source = Self.autoDisabledDir.appendingPathComponent(account.id)
+        let dest = Self.authDir.appendingPathComponent(account.id)
+        do {
+            try FileManager.default.moveItem(at: source, to: dest)
+            NSLog("[AuthStatus] Auto-restored account: %@ (usage recovered)", account.displayName)
+            checkAuthStatus()
+            return true
+        } catch {
+            NSLog("[AuthStatus] Failed to auto-restore account %@: %@", account.displayName, error.localizedDescription)
+            return false
+        }
+    }
+
     func checkAuthStatus() {
-        let authDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cli-proxy-api")
-        
-        // Build new accounts dictionary
+        let authDir = Self.authDir
+
         var newAccounts: [ServiceType: [AuthAccount]] = [:]
         for type in ServiceType.allCases {
             newAccounts[type] = []
         }
-        
+
+        var newManuallyDisabled: [AuthAccount] = []
+        var newAutoDisabled: [AuthAccount] = []
+
         do {
+            // Scan active accounts
             let files = try FileManager.default.contentsOfDirectory(at: authDir, includingPropertiesForKeys: nil)
             NSLog("[AuthStatus] Scanning %d files in auth directory", files.count)
-            
+
             for file in files where file.pathExtension == "json" {
-                NSLog("[AuthStatus] Checking file: %@", file.lastPathComponent)
-                guard let data = try? Data(contentsOf: file),
-                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let type = json["type"] as? String,
-                      let serviceType = ServiceType(rawValue: type.lowercased()) else {
-                    continue
-                }
-                
-                NSLog("[AuthStatus] Found type '%@' in %@", type, file.lastPathComponent)
-                
-                let email = json["email"] as? String
-                let login = json["login"] as? String
-                var expiredDate: Date?
-                
-                if let expiredStr = json["expired"] as? String {
-                    for formatter in Self.dateFormatters {
-                        if let date = formatter.date(from: expiredStr) {
-                            expiredDate = date
-                            break
-                        }
+                guard let account = parseAccountFile(file) else { continue }
+                newAccounts[account.type]?.append(account)
+                NSLog("[AuthStatus] Found %@ auth: %@", account.type.displayName, account.displayName)
+            }
+
+            // Scan manually disabled accounts
+            if let disabledFiles = try? FileManager.default.contentsOfDirectory(at: Self.disabledDir, includingPropertiesForKeys: nil) {
+                for file in disabledFiles where file.pathExtension == "json" {
+                    if let account = parseAccountFile(file) {
+                        newManuallyDisabled.append(account)
+                        NSLog("[AuthStatus] Found manually disabled: %@", account.displayName)
                     }
                 }
-                
-                let isDisabled = json["disabled"] as? Bool ?? false
-                
-                let account = AuthAccount(
-                    id: file.lastPathComponent,
-                    email: email,
-                    login: login,
-                    type: serviceType,
-                    expired: expiredDate,
-                    filePath: file,
-                    isDisabled: isDisabled
-                )
-                
-                newAccounts[serviceType]?.append(account)
-                NSLog("[AuthStatus] Found %@ auth: %@", serviceType.displayName, account.displayName)
             }
-            
-            // Update on main thread
+
+            // Scan auto-disabled accounts
+            if let autoFiles = try? FileManager.default.contentsOfDirectory(at: Self.autoDisabledDir, includingPropertiesForKeys: nil) {
+                for file in autoFiles where file.pathExtension == "json" {
+                    if let account = parseAccountFile(file) {
+                        newAutoDisabled.append(account)
+                        NSLog("[AuthStatus] Found auto-disabled: %@", account.displayName)
+                    }
+                }
+            }
+
             DispatchQueue.main.async {
                 for type in ServiceType.allCases {
                     self.serviceAccounts[type] = ServiceAccounts(
                         type: type,
-                        accounts: newAccounts[type] ?? []
+                        accounts: (newAccounts[type] ?? []).sorted { $0.id < $1.id }
                     )
                 }
+                self.manuallyDisabledAccounts = newManuallyDisabled.sorted { $0.id < $1.id }
+                self.autoDisabledAccounts = newAutoDisabled.sorted { $0.id < $1.id }
             }
         } catch {
             NSLog("[AuthStatus] Error checking auth status: %@", error.localizedDescription)
@@ -156,49 +223,65 @@ class AuthManager: ObservableObject {
                 for type in ServiceType.allCases {
                     self.serviceAccounts[type] = ServiceAccounts(type: type)
                 }
+                self.manuallyDisabledAccounts = []
+                self.autoDisabledAccounts = []
             }
         }
     }
-    
-    /// Toggle the disabled state of a specific account's auth file
-    func toggleAccountDisabled(_ account: AuthAccount) -> Bool {
-        do {
-            let data = try Data(contentsOf: account.filePath)
-            guard var json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                NSLog("[AuthStatus] Failed to parse auth file as JSON: %@", account.filePath.path)
-                return false
-            }
-            let currentlyDisabled = json["disabled"] as? Bool ?? false
-            if !currentlyDisabled {
-                let enabledCount = serviceAccounts[account.type]?.accounts.filter { !$0.isDisabled }.count ?? 0
-                guard enabledCount > 1 else {
-                    NSLog("[AuthStatus] Refusing to disable last enabled account for %@", account.type.rawValue)
-                    return false
-                }
-            }
-            json["disabled"] = !currentlyDisabled
-            let updatedData = try JSONSerialization.data(withJSONObject: json, options: [.sortedKeys])
-            try updatedData.write(to: account.filePath, options: .atomic)
-            NSLog("[AuthStatus] Toggled disabled=%d for: %@", !currentlyDisabled, account.filePath.path)
-            checkAuthStatus()
-            return true
-        } catch {
-            NSLog("[AuthStatus] Failed to toggle disabled state: %@", error.localizedDescription)
-            return false
-        }
-    }
-    
+
+
     /// Delete a specific account's auth file
     func deleteAccount(_ account: AuthAccount) -> Bool {
         do {
             try FileManager.default.removeItem(at: account.filePath)
             NSLog("[AuthStatus] Deleted auth file: %@", account.filePath.path)
-            // Refresh status
             checkAuthStatus()
             return true
         } catch {
             NSLog("[AuthStatus] Failed to delete auth file: %@", error.localizedDescription)
             return false
         }
+    }
+
+    // MARK: - Private
+
+    private func ensureDisabledDirs() {
+        let fm = FileManager.default
+        for dir in [Self.disabledDir, Self.autoDisabledDir] {
+            if !fm.fileExists(atPath: dir.path) {
+                try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            }
+        }
+    }
+
+    private func parseAccountFile(_ file: URL) -> AuthAccount? {
+        guard let data = try? Data(contentsOf: file),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = json["type"] as? String,
+              let serviceType = ServiceType(rawValue: type.lowercased()) else {
+            return nil
+        }
+
+        let email = json["email"] as? String
+        let login = json["login"] as? String
+        var expiredDate: Date?
+
+        if let expiredStr = json["expired"] as? String {
+            for formatter in Self.dateFormatters {
+                if let date = formatter.date(from: expiredStr) {
+                    expiredDate = date
+                    break
+                }
+            }
+        }
+
+        return AuthAccount(
+            id: file.lastPathComponent,
+            email: email,
+            login: login,
+            type: serviceType,
+            expired: expiredDate,
+            filePath: file
+        )
     }
 }
