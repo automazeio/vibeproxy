@@ -1409,6 +1409,8 @@ class ThinkingProxy {
         }
     }
 
+    private static let reasoningEfforts = ["low", "medium", "high"]
+
     private func injectGroupModels(into responseData: Data, groupNames: [String]) -> Data {
         guard let responseStr = String(data: responseData, encoding: .utf8),
               let headerEnd = responseStr.range(of: "\r\n\r\n") else {
@@ -1423,11 +1425,29 @@ class ThinkingProxy {
             return responseData
         }
 
+        // Inject reasoning/thinking variants for existing models
+        let now = Int(Date().timeIntervalSince1970)
+        let existingModels = dataArray.compactMap { $0["id"] as? String }
+        for modelId in existingModels {
+            let owner = dataArray.first(where: { $0["id"] as? String == modelId })?["owned_by"] as? String ?? "vibeproxy"
+            if modelId.starts(with: "claude-") || modelId.starts(with: "gemini-claude-") {
+                // Claude: add -thinking-{8000,16000,32000} variants
+                for budget in [8000, 16000, 32000] {
+                    dataArray.append(["id": "\(modelId)-thinking-\(budget)", "object": "model", "created": now, "owned_by": owner])
+                }
+            } else {
+                // Non-Claude: add -reasoning-{low,medium,high} variants
+                for effort in Self.reasoningEfforts {
+                    dataArray.append(["id": "\(modelId)-reasoning-\(effort)", "object": "model", "created": now, "owned_by": owner])
+                }
+            }
+        }
+
         for name in groupNames {
             dataArray.append([
                 "id": name,
                 "object": "model",
-                "created": Int(Date().timeIntervalSince1970),
+                "created": now,
                 "owned_by": "vibeproxy"
             ])
         }
