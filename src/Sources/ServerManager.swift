@@ -94,7 +94,8 @@ class ServerManager: ObservableObject {
         "gemini": "gemini-cli",
         "github-copilot": "github-copilot",
         "antigravity": "antigravity",
-        "qwen": "qwen"
+        "qwen": "qwen",
+        "kimi": "kimi"
     ]
 
     init() {
@@ -297,8 +298,10 @@ class ServerManager: ObservableObject {
             qwenEmail = email
         case .antigravityLogin:
             authProcess.arguments = ["--config", configPath, "-antigravity-login"]
+        case .kimiLogin:
+            authProcess.arguments = ["--config", configPath, "-kimi-login"]
         }
-        
+
         // Create pipes for output
         let outputPipe = Pipe()
         let errorPipe = Pipe()
@@ -675,4 +678,5 @@ enum AuthCommand: Equatable {
     case geminiLogin
     case qwenLogin(email: String)
     case antigravityLogin
+    case kimiLogin
 }
