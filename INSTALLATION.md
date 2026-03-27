@@ -60,6 +60,24 @@ Double-click `VibeProxy.app` - it will launch immediately with no warnings! ✅
    - Create `VibeProxy.app`
    - Sign it with your Developer ID (if available)
 
+#### Testing a custom CLIProxyAPIPlus build
+
+If you want VibeProxy to use a locally built `CLIProxyAPIPlus` binary instead of the committed bundled binary:
+
+1. Build your `CLIProxyAPIPlus` fork:
+   ```bash
+   cd /path/to/CLIProxyAPIPlus
+   go build -o /tmp/cli-proxy-api-plus ./cmd/server
+   ```
+
+2. Bundle that binary into VibeProxy:
+   ```bash
+   cd /path/to/vibeproxy
+   CLI_PROXY_API_PLUS_PATH=/tmp/cli-proxy-api-plus ./create-app-bundle.sh
+   ```
+
+This lets you validate a local `CLIProxyAPIPlus` patch inside the VibeProxy app before it is released upstream.
+
 3. **Install**
    ```bash
    # Move to Applications folder
