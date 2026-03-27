@@ -16,6 +16,7 @@ APP_NAME="VibeProxy"
 BUNDLE_ID="com.cliproxyapi.menubar"
 BUILD_DIR="$SRC_DIR/.build/release"
 APP_DIR="$PROJECT_DIR/$APP_NAME.app"
+CLI_PROXY_API_PLUS_PATH="${CLI_PROXY_API_PLUS_PATH:-}"
 
 # Build the Swift executable first
 echo -e "${BLUE}Building Swift executable (release)...${NC}"
@@ -62,6 +63,17 @@ if [ -d "$SRC_DIR/Sources/Resources" ]; then
             fi
         fi
     done
+fi
+
+if [ -n "$CLI_PROXY_API_PLUS_PATH" ]; then
+    echo -e "${BLUE}Overriding bundled cli-proxy-api-plus from: ${CLI_PROXY_API_PLUS_PATH}${NC}"
+    if [ ! -f "$CLI_PROXY_API_PLUS_PATH" ]; then
+        echo -e "${YELLOW}⚠️ ERROR: CLI_PROXY_API_PLUS_PATH does not exist: ${CLI_PROXY_API_PLUS_PATH}${NC}"
+        exit 1
+    fi
+
+    cp "$CLI_PROXY_API_PLUS_PATH" "$APP_DIR/Contents/Resources/cli-proxy-api-plus"
+    chmod +x "$APP_DIR/Contents/Resources/cli-proxy-api-plus"
 fi
 
 # Verify critical files were copied
