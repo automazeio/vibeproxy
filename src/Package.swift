@@ -13,22 +13,15 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(url: "https://github.com/krzysztofzablocki/Inject.git", branch: "main")
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.5.0")
     ],
     targets: [
         .executableTarget(
             name: "CLIProxyMenuBar",
-            dependencies: ["Inject"],
+            dependencies: ["Sparkle"],
             path: "Sources",
             resources: [
                 .copy("Resources")
-            ],
-            swiftSettings: [
-                .unsafeFlags(["-Xfrontend", "-enable-implicit-dynamic"], .when(configuration: .debug)),
-                .unsafeFlags(["-suppress-warnings"], .when(configuration: .debug))
-            ],
-            linkerSettings: [
-                .unsafeFlags(["-Xlinker", "-interposable"], .when(configuration: .debug))
             ]
         )
     ]

@@ -15,12 +15,30 @@ import Network
  - claude-sonnet-4-5-20250929-thinking-2000 → 2,000 token budget
  - claude-sonnet-4-5-20250929-thinking-8000 → 8,000 token budget
  */
+struct VercelGatewayConfig {
+    var enabled: Bool
+    var apiKey: String
+
+    var isActive: Bool { enabled && !apiKey.isEmpty }
+}
+
 class ThinkingProxy {
     private var listener: NWListener?
     let proxyPort: UInt16 = 8317
     private let targetPort: UInt16 = 8318
     private let targetHost = "127.0.0.1"
     private(set) var isRunning = false
+    private let stateQueue = DispatchQueue(label: "io.automaze.vibeproxy.thinking-proxy-state")
+
+    var vercelConfig = VercelGatewayConfig(enabled: false, apiKey: "")
+    
+    private enum Config {
+        static let hardTokenCap = 32000
+        static let minimumHeadroom = 1024
+        static let headroomRatio = 0.1
+        static let vercelGatewayHost = "ai-gateway.vercel.sh"
+        static let anthropicVersion = "2023-06-01"
+    }
     
     /**
      Starts the thinking proxy server on port 8317
@@ -35,7 +53,11 @@ class ThinkingProxy {
             let parameters = NWParameters.tcp
             parameters.allowLocalEndpointReuse = true
             
-            listener = try NWListener(using: parameters, on: NWEndpoint.Port(rawValue: proxyPort)!)
+            guard let port = NWEndpoint.Port(rawValue: proxyPort) else {
+                NSLog("[ThinkingProxy] Invalid port: %d", proxyPort)
+                return
+            }
+            listener = try NWListener(using: parameters, on: port)
             
             listener?.stateUpdateHandler = { [weak self] state in
                 switch state {
@@ -74,14 +96,16 @@ class ThinkingProxy {
      Stops the thinking proxy server
      */
     func stop() {
-        guard isRunning else { return }
-        
-        listener?.cancel()
-        listener = nil
-        DispatchQueue.main.async { [weak self] in
-            self?.isRunning = false
+        stateQueue.sync {
+            guard isRunning else { return }
+            
+            listener?.cancel()
+            listener = nil
+            DispatchQueue.main.async { [weak self] in
+                self?.isRunning = false
+            }
+            NSLog("[ThinkingProxy] Stopped")
         }
-        NSLog("[ThinkingProxy] Stopped")
     }
     
     /**
@@ -184,6 +208,7 @@ class ThinkingProxy {
         let method = parts[0]
         let path = parts[1]
         let httpVersion = parts[2]
+        NSLog("[ThinkingProxy] Incoming request: \(method) \(path)")
 
         // Collect headers while preserving original casing
         var headers: [(String, String)] = []
@@ -206,22 +231,29 @@ class ThinkingProxy {
         let bodyStart = requestString.distance(from: requestString.startIndex, to: bodyStartRange.upperBound)
         let bodyString = String(requestString[requestString.index(requestString.startIndex, offsetBy: bodyStart)...])
         
+        // Redirect Amp CLI login directly to ampcode.com to preserve auth state cookies
+        if path.starts(with: "/auth/cli-login") || path.starts(with: "/api/auth/cli-login") {
+            let loginPath = path.hasPrefix("/api/") ? String(path.dropFirst(4)) : path
+            let redirectUrl = "https://ampcode.com" + loginPath
+            NSLog("[ThinkingProxy] Redirecting Amp CLI login to: \(redirectUrl)")
+            sendRedirect(to: connection, location: redirectUrl)
+            return
+        }
+
         // Rewrite Amp CLI paths
         var rewrittenPath = path
-        if path.starts(with: "/auth/cli-login") {
-            rewrittenPath = "/api" + path
-            NSLog("[ThinkingProxy] Rewriting Amp CLI login: \(path) -> \(rewrittenPath)")
-        } else if path.starts(with: "/provider/") {
+        if path.starts(with: "/provider/") {
             // Rewrite /provider/* to /api/provider/*
             rewrittenPath = "/api" + path
             NSLog("[ThinkingProxy] Rewriting Amp provider path: \(path) -> \(rewrittenPath)")
         }
         
-        // Check if this is an Amp management API request (not provider routes)
-        // Management routes: /api/auth, /api/user, /api/meta, /api/threads, /api/telemetry, /api/internal
-        // Provider routes like /api/provider/* should pass through to CLIProxyAPI
-        if rewrittenPath.starts(with: "/api/") && !rewrittenPath.starts(with: "/api/provider/") {
-            let ampPath = String(rewrittenPath.dropFirst(4)) // Remove "/api" prefix
+        // Check if this is an Amp management request (anything not targeting provider or /v1)
+        // Note: /provider/ paths are already rewritten to /api/provider/ above
+        let isProviderPath = rewrittenPath.starts(with: "/api/provider/")
+        let isCliProxyPath = rewrittenPath.starts(with: "/v1/") || rewrittenPath.starts(with: "/api/v1/")
+        if !isProviderPath && !isCliProxyPath {
+            let ampPath = rewrittenPath
             NSLog("[ThinkingProxy] Amp management request detected, forwarding to ampcode.com: \(ampPath)")
             forwardToAmp(method: method, path: ampPath, version: httpVersion, headers: headers, body: bodyString, originalConnection: connection)
             return
@@ -229,16 +261,83 @@ class ThinkingProxy {
         
         // Try to parse and modify JSON body for POST requests
         var modifiedBody = bodyString
+        var thinkingEnabled = false
         
-        var transformationApplied = false
         if method == "POST" && !bodyString.isEmpty {
             if let result = processThinkingParameter(jsonString: bodyString) {
                 modifiedBody = result.0
-                transformationApplied = result.1
+                thinkingEnabled = result.1
+            }
+            // Strip cache_control fields that cause 400 errors via the OAuth route
+            if let stripped = stripCacheControl(from: modifiedBody) {
+                modifiedBody = stripped
             }
         }
         
-        forwardRequest(method: method, path: rewrittenPath, version: httpVersion, headers: headers, body: modifiedBody, originalConnection: connection, forceConnectionClose: transformationApplied)
+        // Route Claude requests through Vercel AI Gateway when configured
+        if vercelConfig.isActive && method == "POST" && isClaudeModelRequest(body: modifiedBody) {
+            NSLog("[ThinkingProxy] Routing Claude request via Vercel AI Gateway")
+            forwardToVercel(method: method, path: "/v1/messages", version: httpVersion, headers: headers, body: modifiedBody, thinkingEnabled: thinkingEnabled, originalConnection: connection)
+            return
+        }
+        
+        forwardRequest(method: method, path: rewrittenPath, version: httpVersion, headers: headers, body: modifiedBody, thinkingEnabled: thinkingEnabled, originalConnection: connection)
+    }
+    
+    private func isClaudeModelRequest(body: String) -> Bool {
+        guard let data = body.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let model = json["model"] as? String else { return false }
+        return model.starts(with: "claude-") || model.starts(with: "gemini-claude-")
+    }
+
+    /// Strips `cache_control` fields from the request body that cause 400 errors via the OAuth route
+    private func stripCacheControl(from jsonString: String) -> String? {
+        guard let jsonData = jsonString.data(using: .utf8),
+              var json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+            return nil
+        }
+
+        var modified = false
+
+        func stripFromDictArray(_ array: inout [[String: Any]]) {
+            for i in array.indices {
+                if array[i]["cache_control"] != nil {
+                    array[i].removeValue(forKey: "cache_control")
+                    modified = true
+                }
+                // Recurse into nested content arrays
+                if var nested = array[i]["content"] as? [[String: Any]] {
+                    stripFromDictArray(&nested)
+                    array[i]["content"] = nested
+                }
+            }
+        }
+
+        if var system = json["system"] as? [[String: Any]] {
+            stripFromDictArray(&system)
+            if modified { json["system"] = system }
+        }
+
+        if var messages = json["messages"] as? [[String: Any]] {
+            stripFromDictArray(&messages)
+            if modified { json["messages"] = messages }
+        }
+
+        if var tools = json["tools"] as? [[String: Any]] {
+            stripFromDictArray(&tools)
+            if modified { json["tools"] = tools }
+        }
+
+        guard modified else { return nil }
+
+        guard let modifiedData = try? JSONSerialization.data(withJSONObject: json),
+              let modifiedString = String(data: modifiedData, encoding: .utf8) else {
+            return nil
+        }
+
+        NSLog("[ThinkingProxy] Stripped cache_control fields from request body")
+        return modifiedString
     }
     
     /**
@@ -252,8 +351,8 @@ class ThinkingProxy {
             return nil
         }
         
-        // Only process Claude models with thinking suffix
-        guard model.starts(with: "claude-") else {
+        // Only process Claude models (including gemini-claude variants)
+        guard model.starts(with: "claude-") || model.starts(with: "gemini-claude-") else {
             return (jsonString, false)  // Not Claude, pass through
         }
         
@@ -265,30 +364,45 @@ class ThinkingProxy {
             // Extract the number after "-thinking-"
             let budgetString = String(model[thinkingRange.upperBound...])
             
-            // Strip the thinking suffix from model name regardless
-            let cleanModel = String(model[..<thinkingRange.lowerBound])
+            // For gemini-claude-* models, preserve "-thinking" and only strip the number
+            // e.g. gemini-claude-opus-4-5-thinking-10000 -> gemini-claude-opus-4-5-thinking
+            // For claude-* models, strip the entire suffix
+            // e.g. claude-opus-4-5-20251101-thinking-10000 -> claude-opus-4-5-20251101
+            let cleanModel: String
+            if model.starts(with: "gemini-claude-") {
+                cleanModel = String(model[..<thinkingRange.upperBound].dropLast(1))  // Keep "-thinking", drop trailing "-"
+            } else {
+                cleanModel = String(model[..<thinkingRange.lowerBound])
+            }
             json["model"] = cleanModel
             
             // Only add thinking parameter if it's a valid integer
             if let budget = Int(budgetString), budget > 0 {
-                let hardCap = 32000
-                let effectiveBudget = min(budget, hardCap - 1)
+                let effectiveBudget = min(budget, Config.hardTokenCap - 1)
                 if effectiveBudget != budget {
                     NSLog("[ThinkingProxy] Adjusted thinking budget from \(budget) to \(effectiveBudget) to stay within limits")
                 }
-                // Add thinking parameter
-                json["thinking"] = [
-                    "type": "enabled",
-                    "budget_tokens": effectiveBudget
-                ]
+
+                // Claude Opus 4.6+ requires adaptive thinking; older models use enabled+budget_tokens
+                let isAdaptiveModel = cleanModel.contains("opus-4-6") || cleanModel.contains("opus-4-7")
+                if isAdaptiveModel {
+                    json["thinking"] = ["type": "adaptive"]
+                    NSLog("[ThinkingProxy] Using adaptive thinking for model '\(cleanModel)'")
+                } else {
+                    json["thinking"] = [
+                        "type": "enabled",
+                        "budget_tokens": effectiveBudget
+                    ]
+                }
                 
                 // Ensure max token limits are greater than the thinking budget
                 // Claude requires: max_output_tokens (or legacy max_tokens) > thinking.budget_tokens
-                let tokenHeadroom = max(1024, effectiveBudget / 10)
+                // (only relevant for non-adaptive models, but safe to set for all)
+                let tokenHeadroom = max(Config.minimumHeadroom, Int(Double(effectiveBudget) * Config.headroomRatio))
                 let desiredMaxTokens = effectiveBudget + tokenHeadroom
-                var requiredMaxTokens = min(desiredMaxTokens, hardCap)
+                var requiredMaxTokens = min(desiredMaxTokens, Config.hardTokenCap)
                 if requiredMaxTokens <= effectiveBudget {
-                    requiredMaxTokens = min(effectiveBudget + 1, hardCap)
+                    requiredMaxTokens = min(effectiveBudget + 1, Config.hardTokenCap)
                 }
                 
                 let hasMaxOutputTokensField = json.keys.contains("max_output_tokens")
@@ -327,6 +441,11 @@ class ThinkingProxy {
                let modifiedString = String(data: modifiedData, encoding: .utf8) {
                 return (modifiedString, true)
             }
+        } else if model.hasSuffix("-thinking") || model.contains("-thinking(") {
+            // Model ends with -thinking or uses -thinking(budget) syntax (e.g. gemini-claude-opus-4-5-thinking, gemini-claude-opus-4-5-thinking(32768))
+            // Enable beta header but don't modify body - let backend handle thinking budget
+            NSLog("[ThinkingProxy] Detected thinking model '\(model)' - enabling beta header, passing through to backend")
+            return (jsonString, true)
         }
         
         return (jsonString, false)  // No transformation needed
@@ -421,6 +540,30 @@ class ThinkingProxy {
                         of: "\r\nLocation: /",
                         with: "\r\nLocation: /api/"
                     )
+
+                    // Rewrite absolute Location headers to keep browser on localhost proxy
+                    responseString = responseString.replacingOccurrences(
+                        of: "\r\nLocation: https://ampcode.com/",
+                        with: "\r\nLocation: /api/",
+                        options: .caseInsensitive
+                    )
+                    responseString = responseString.replacingOccurrences(
+                        of: "\r\nLocation: http://ampcode.com/",
+                        with: "\r\nLocation: /api/",
+                        options: .caseInsensitive
+                    )
+
+                    // Rewrite cookie domain so browser accepts cookies from localhost
+                    responseString = responseString.replacingOccurrences(
+                        of: "Domain=.ampcode.com",
+                        with: "Domain=localhost",
+                        options: .caseInsensitive
+                    )
+                    responseString = responseString.replacingOccurrences(
+                        of: "Domain=ampcode.com",
+                        with: "Domain=localhost",
+                        options: .caseInsensitive
+                    )
                     
                     if let modifiedData = responseString.data(using: .utf8) {
                         originalConnection.send(content: modifiedData, completion: .contentProcessed({ sendError in
@@ -466,11 +609,99 @@ class ThinkingProxy {
     }
     
     /**
+     Forwards Claude requests to Vercel AI Gateway (ai-gateway.vercel.sh)
+     */
+    private func forwardToVercel(method: String, path: String, version: String, headers: [(String, String)], body: String, thinkingEnabled: Bool, originalConnection: NWConnection) {
+        let tlsOptions = NWProtocolTLS.Options()
+        let parameters = NWParameters(tls: tlsOptions, tcp: NWProtocolTCP.Options())
+        
+        let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(Config.vercelGatewayHost), port: 443)
+        let targetConnection = NWConnection(to: endpoint, using: parameters)
+        let apiKey = vercelConfig.apiKey
+        
+        targetConnection.stateUpdateHandler = { [weak self] state in
+            guard let self = self else { return }
+            switch state {
+            case .ready:
+                var forwardedRequest = "\(method) \(path) \(version)\r\n"
+                
+                let excludedHeaders: Set<String> = ["host", "content-length", "connection", "transfer-encoding", "authorization", "x-api-key"]
+                var existingBetaHeader: String? = nil
+                
+                for (name, value) in headers {
+                    let lower = name.lowercased()
+                    if excludedHeaders.contains(lower) { continue }
+                    if lower == "anthropic-beta" {
+                        existingBetaHeader = value
+                        continue
+                    }
+                    forwardedRequest += "\(name): \(value)\r\n"
+                }
+                
+                // Vercel auth
+                forwardedRequest += "x-api-key: \(apiKey)\r\n"
+                forwardedRequest += "anthropic-version: \(Config.anthropicVersion)\r\n"
+                forwardedRequest += "content-type: application/json\r\n"
+                
+                // Thinking beta header
+                if thinkingEnabled {
+                    var betaValue = BetaHeaders.interleavedThinking
+                    if let existing = existingBetaHeader, !existing.contains(BetaHeaders.interleavedThinking) {
+                        betaValue = "\(existing),\(BetaHeaders.interleavedThinking)"
+                    }
+                    forwardedRequest += "anthropic-beta: \(betaValue)\r\n"
+                } else if let existing = existingBetaHeader {
+                    forwardedRequest += "anthropic-beta: \(existing)\r\n"
+                }
+                
+                forwardedRequest += "Host: \(Config.vercelGatewayHost)\r\n"
+                forwardedRequest += "Connection: close\r\n"
+                
+                let contentLength = body.utf8.count
+                forwardedRequest += "Content-Length: \(contentLength)\r\n"
+                forwardedRequest += "\r\n"
+                forwardedRequest += body
+                
+                if let requestData = forwardedRequest.data(using: .utf8) {
+                    targetConnection.send(content: requestData, completion: .contentProcessed({ error in
+                        if let error = error {
+                            NSLog("[ThinkingProxy] Vercel send error: \(error)")
+                            targetConnection.cancel()
+                            originalConnection.cancel()
+                        } else {
+                            self.receiveResponse(from: targetConnection, originalConnection: originalConnection)
+                        }
+                    }))
+                }
+                
+            case .failed(let error):
+                NSLog("[ThinkingProxy] Vercel connection failed: \(error)")
+                self.sendError(to: originalConnection, statusCode: 502, message: "Bad Gateway - Could not connect to Vercel AI Gateway")
+                targetConnection.cancel()
+                
+            default:
+                break
+            }
+        }
+        
+        targetConnection.start(queue: .global(qos: .userInitiated))
+    }
+    
+    private enum BetaHeaders {
+        static let interleavedThinking = "interleaved-thinking-2025-05-14"
+    }
+    
+    /**
      Forwards the request to CLIProxyAPI on port 8318 (pass-through for non-thinking requests)
      */
-    private func forwardRequest(method: String, path: String, version: String, headers: [(String, String)], body: String, originalConnection: NWConnection, forceConnectionClose: Bool, retryWithApiPrefix: Bool = false) {
+    private func forwardRequest(method: String, path: String, version: String, headers: [(String, String)], body: String, thinkingEnabled: Bool = false, originalConnection: NWConnection, retryWithApiPrefix: Bool = false) {
         // Create connection to CLIProxyAPI
-        let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(targetHost), port: NWEndpoint.Port(rawValue: targetPort)!)
+        guard let port = NWEndpoint.Port(rawValue: targetPort) else {
+            NSLog("[ThinkingProxy] Invalid target port: %d", targetPort)
+            sendError(to: originalConnection, statusCode: 500, message: "Internal Server Error")
+            return
+        }
+        let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(targetHost), port: port)
         let parameters = NWParameters.tcp
         let targetConnection = NWConnection(to: endpoint, using: parameters)
         
@@ -480,12 +711,37 @@ class ThinkingProxy {
                 // Build the forwarded request
                 var forwardedRequest = "\(method) \(path) \(version)\r\n"
                 let excludedHeaders: Set<String> = ["content-length", "host", "transfer-encoding"]
+                var existingBetaHeader: String? = nil
+                
                 for (name, value) in headers {
                     let lowercasedName = name.lowercased()
                     if excludedHeaders.contains(lowercasedName) {
                         continue
                     }
+                    // Capture existing anthropic-beta header for merging
+                    if lowercasedName == "anthropic-beta" {
+                        existingBetaHeader = value
+                        continue
+                    }
                     forwardedRequest += "\(name): \(value)\r\n"
+                }
+                
+                // Add/merge anthropic-beta header when thinking is enabled
+                if thinkingEnabled {
+                    var betaValue = BetaHeaders.interleavedThinking
+                    if let existing = existingBetaHeader {
+                        // Merge with existing header if not already present
+                        if !existing.contains(BetaHeaders.interleavedThinking) {
+                            betaValue = "\(existing),\(BetaHeaders.interleavedThinking)"
+                        } else {
+                            betaValue = existing
+                        }
+                    }
+                    forwardedRequest += "anthropic-beta: \(betaValue)\r\n"
+                    NSLog("[ThinkingProxy] Added interleaved thinking beta header")
+                } else if let existing = existingBetaHeader {
+                    // Pass through existing header when thinking not enabled
+                    forwardedRequest += "anthropic-beta: \(existing)\r\n"
                 }
                 
                 // Override Host header
@@ -509,11 +765,10 @@ class ThinkingProxy {
                             // Receive response from CLIProxyAPI (with 404 retry capability)
                             if retryWithApiPrefix {
                                 self.receiveResponseWith404Retry(from: targetConnection, originalConnection: originalConnection, 
-                                                                 forceConnectionClose: forceConnectionClose, 
                                                                  method: method, path: path, version: version, 
                                                                  headers: headers, body: body)
                             } else {
-                                self.receiveResponse(from: targetConnection, originalConnection: originalConnection, forceConnectionClose: forceConnectionClose)
+                                self.receiveResponse(from: targetConnection, originalConnection: originalConnection)
                             }
                         }
                     }))
@@ -536,7 +791,7 @@ class ThinkingProxy {
      Receives response and retries with /api/ prefix on 404
      */
     private func receiveResponseWith404Retry(from targetConnection: NWConnection, originalConnection: NWConnection, 
-                                             forceConnectionClose: Bool, method: String, path: String, version: String, 
+                                             method: String, path: String, version: String, 
                                              headers: [(String, String)], body: String) {
         targetConnection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
             guard let self = self else { return }
@@ -569,8 +824,7 @@ class ThinkingProxy {
                             // Retry with /api/ prefix
                             let newPath = "/api" + path
                             self.forwardRequest(method: method, path: newPath, version: version, headers: headers, 
-                                              body: body, originalConnection: originalConnection, 
-                                              forceConnectionClose: forceConnectionClose, retryWithApiPrefix: false)
+                                              body: body, originalConnection: originalConnection, retryWithApiPrefix: false)
                             return
                         }
                     }
@@ -589,7 +843,7 @@ class ThinkingProxy {
                         }))
                     } else {
                         // Continue streaming
-                        self.streamNextChunk(from: targetConnection, to: originalConnection, forceConnectionClose: forceConnectionClose)
+                        self.streamNextChunk(from: targetConnection, to: originalConnection)
                     }
                 }))
             } else if isComplete {
@@ -605,15 +859,15 @@ class ThinkingProxy {
      Receives response from CLIProxyAPI
      Starts the streaming loop for response data
      */
-    private func receiveResponse(from targetConnection: NWConnection, originalConnection: NWConnection, forceConnectionClose: Bool) {
+    private func receiveResponse(from targetConnection: NWConnection, originalConnection: NWConnection) {
         // Start the streaming loop
-        streamNextChunk(from: targetConnection, to: originalConnection, forceConnectionClose: forceConnectionClose)
+        streamNextChunk(from: targetConnection, to: originalConnection)
     }
     
     /**
      Streams response chunks iteratively (uses async scheduling instead of recursion to avoid stack buildup)
      */
-    private func streamNextChunk(from targetConnection: NWConnection, to originalConnection: NWConnection, forceConnectionClose: Bool) {
+    private func streamNextChunk(from targetConnection: NWConnection, to originalConnection: NWConnection) {
         targetConnection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
             guard let self = self else { return }
             
@@ -639,7 +893,7 @@ class ThinkingProxy {
                         }))
                     } else {
                         // Schedule next iteration of the streaming loop
-                        self.streamNextChunk(from: targetConnection, to: originalConnection, forceConnectionClose: forceConnectionClose)
+                        self.streamNextChunk(from: targetConnection, to: originalConnection)
                     }
                 }))
             } else if isComplete {
@@ -678,6 +932,23 @@ class ThinkingProxy {
         responseData.append(bodyData)
         
         connection.send(content: responseData, completion: .contentProcessed({ _ in
+            connection.cancel()
+        }))
+    }
+
+    private func sendRedirect(to connection: NWConnection, location: String) {
+        let headers = "HTTP/1.1 302 Found\r\n" +
+                     "Location: \(location)\r\n" +
+                     "Content-Length: 0\r\n" +
+                     "Connection: close\r\n" +
+                     "\r\n"
+
+        guard let headerData = headers.data(using: .utf8) else {
+            connection.cancel()
+            return
+        }
+
+        connection.send(content: headerData, completion: .contentProcessed({ _ in
             connection.cancel()
         }))
     }

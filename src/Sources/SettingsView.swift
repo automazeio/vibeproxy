@@ -1,68 +1,289 @@
 import SwiftUI
 import ServiceManagement
 
+/// A single account row with disable toggle and remove button
+struct AccountRowView: View {
+    let account: AuthAccount
+    let removeColor: Color
+    let showDisableToggle: Bool
+    let isLastEnabled: Bool
+    let onToggleDisabled: () -> Void
+    let onRemove: () -> Void
+    
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(account.isDisabled ? Color.gray : (account.isExpired ? Color.orange : Color.green))
+                .frame(width: 6, height: 6)
+            Text(account.displayName)
+                .font(.caption)
+                .foregroundColor(account.isDisabled ? .secondary.opacity(0.5) : (account.isExpired ? .orange : .secondary))
+                .strikethrough(account.isDisabled)
+            if account.isExpired && !account.isDisabled {
+                Text("(expired)")
+                    .font(.caption2)
+                    .foregroundColor(.orange)
+            }
+            if account.isDisabled {
+                Text("(disabled)")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+            if showDisableToggle {
+                let canDisable = account.isDisabled || !isLastEnabled
+                Button(action: onToggleDisabled) {
+                    Text(account.isDisabled ? "Enable" : "Disable")
+                        .font(.caption)
+                        .foregroundColor(account.isDisabled ? .green : (canDisable ? .orange : .secondary.opacity(0.4)))
+                }
+                .buttonStyle(.plain)
+                .disabled(!canDisable)
+                .help(!canDisable ? "At least one account must remain enabled" : "")
+                .onHover { inside in
+                    if canDisable {
+                        if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                    }
+                }
+            }
+            Button(action: onRemove) {
+                HStack(spacing: 2) {
+                    Image(systemName: "minus.circle.fill")
+                        .font(.caption)
+                    Text("Remove")
+                        .font(.caption)
+                }
+                .foregroundColor(removeColor)
+            }
+            .buttonStyle(.plain)
+            .onHover { inside in
+                if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            }
+        }
+        .padding(.leading, 28)
+    }
+}
+
+/// Vercel AI Gateway controls shown in Claude expanded section
+struct VercelGatewayControls: View {
+    @ObservedObject var serverManager: ServerManager
+    @State private var showingSaved = false
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle(isOn: $serverManager.vercelGatewayEnabled) {
+                Text("Use Vercel AI Gateway")
+                    .font(.caption)
+            }
+            .toggleStyle(.checkbox)
+            .help("Route Claude requests through Vercel AI Gateway for safer access to your Claude Max subscription")
+            
+            if serverManager.vercelGatewayEnabled {
+                HStack(spacing: 8) {
+                    Text("Vercel API key")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    SecureField("", text: $serverManager.vercelApiKey)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 220)
+                        .font(.caption)
+                    
+                    if showingSaved {
+                        Text("Saved")
+                            .font(.caption)
+                            .foregroundColor(.green)
+                    } else {
+                        Button("Save") {
+                            showingSaved = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                                showingSaved = false
+                            }
+                        }
+                        .controlSize(.small)
+                        .disabled(serverManager.vercelApiKey.isEmpty)
+                    }
+                }
+            }
+        }
+        .padding(.leading, 28)
+        .padding(.top, 4)
+    }
+}
+
+/// A row displaying a service with its connected accounts and add button
+struct ServiceRow<ExtraContent: View>: View {
+    let serviceType: ServiceType
+    let iconName: String
+    let accounts: [AuthAccount]
+    let isAuthenticating: Bool
+    let helpText: String?
+    let isEnabled: Bool
+    let customTitle: String?
+    let onConnect: () -> Void
+    let onDisconnect: (AuthAccount) -> Void
+    let onToggleDisabled: (AuthAccount) -> Void
+    let onToggleEnabled: (Bool) -> Void
+    var onExpandChange: ((Bool) -> Void)? = nil
+    @ViewBuilder var extraContent: () -> ExtraContent
+
+    @State private var isExpanded = false
+    @State private var accountToRemove: AuthAccount?
+    @State private var showingRemoveConfirmation = false
+
+    private var activeCount: Int { accounts.filter { !$0.isExpired }.count }
+    private var expiredCount: Int { accounts.filter { $0.isExpired }.count }
+    private let removeColor = Color(red: 0xeb/255, green: 0x0f/255, blue: 0x0f/255)
+    
+    private var displayTitle: String {
+        customTitle ?? serviceType.displayName
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            // Header row
+            HStack {
+                // Enable/disable toggle
+                Toggle("", isOn: Binding(
+                    get: { isEnabled },
+                    set: { onToggleEnabled($0) }
+                ))
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .labelsHidden()
+                .help(isEnabled ? "Disable this provider" : "Enable this provider")
+
+                if let nsImage = IconCatalog.shared.image(named: iconName, resizedTo: NSSize(width: 20, height: 20), template: true) {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .renderingMode(.template)
+                        .frame(width: 20, height: 20)
+                        .opacity(isEnabled ? 1.0 : 0.4)
+                }
+                Text(displayTitle)
+                    .fontWeight(.medium)
+                    .foregroundColor(isEnabled ? .primary : .secondary)
+                Spacer()
+                if isAuthenticating {
+                    ProgressView()
+                        .controlSize(.small)
+                } else if isEnabled {
+                    Button("Add Account") {
+                        onConnect()
+                    }
+                    .controlSize(.small)
+                }
+            }
+            
+            // Account display (only shown when enabled)
+            if isEnabled {
+                let enabledCount = accounts.filter { !$0.isDisabled }.count
+                if !accounts.isEmpty {
+                    // Collapsible summary
+                    HStack(spacing: 4) {
+                        Text("\(accounts.count) connected account\(accounts.count == 1 ? "" : "s")")
+                            .font(.caption)
+                            .foregroundColor(.green)
+
+                        if enabledCount > 1 {
+                            Text("• Round-robin w/ auto-failover")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.leading, 28)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isExpanded.toggle()
+                        }
+                    }
+
+                    // Expanded accounts list
+                    if isExpanded {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(accounts) { account in
+                                AccountRowView(account: account, removeColor: removeColor, showDisableToggle: accounts.count > 1, isLastEnabled: !account.isDisabled && enabledCount <= 1, onToggleDisabled: {
+                                    onToggleDisabled(account)
+                                }) {
+                                    accountToRemove = account
+                                    showingRemoveConfirmation = true
+                                }
+                            }
+                            extraContent()
+                        }
+                        .padding(.top, 4)
+                    }
+                } else {
+                    Text("No connected accounts")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.leading, 28)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+        .help(helpText ?? "")
+        .onAppear {
+            if accounts.contains(where: { $0.isExpired }) {
+                isExpanded = true
+            }
+        }
+        .onChange(of: accounts) { newAccounts in
+            if newAccounts.contains(where: { $0.isExpired }) {
+                isExpanded = true
+            }
+        }
+        .onChange(of: isExpanded) { newValue in
+            onExpandChange?(newValue)
+        }
+        .alert("Remove Account", isPresented: $showingRemoveConfirmation) {
+            Button("Cancel", role: .cancel) {
+                accountToRemove = nil
+            }
+            Button("Remove", role: .destructive) {
+                if let account = accountToRemove {
+                    onDisconnect(account)
+                }
+                accountToRemove = nil
+            }
+        } message: {
+            if let account = accountToRemove {
+                Text("Are you sure you want to remove \(account.displayName) from \(serviceType.displayName)?")
+            }
+        }
+    }
+}
+
 struct SettingsView: View {
     @ObservedObject var serverManager: ServerManager
     @StateObject private var authManager = AuthManager()
-    @StateObject private var serviceDiscoveryManager = ServiceDiscoveryManager.shared
-    @StateObject private var modelManager = LocalModelManager.shared
     @State private var launchAtLogin = false
+    @State private var authenticatingService: ServiceType? = nil
     @State private var showingAuthResult = false
     @State private var authResultMessage = ""
     @State private var authResultSuccess = false
     @State private var fileMonitor: DispatchSourceFileSystemObject?
-    @State private var showingEmailPrompt = false
-    @State private var promptedEmail = ""
-    @State private var promptedServiceID = ""
-    @State private var isAuthenticatingServiceID: String?
-    @State private var showingSLMSettings = false
+    @State private var showingQwenEmailPrompt = false
+    @State private var qwenEmail = ""
+    @State private var showingZaiApiKeyPrompt = false
+    @State private var zaiApiKey = ""
+    @State private var pendingRefresh: DispatchWorkItem?
+    @State private var expandedRowCount = 0
     
-    private enum DisconnectTiming {
+    private enum Timing {
         static let serverRestartDelay: TimeInterval = 0.3
-    }
-    
-    /// Get auth status for any service dynamically
-    private func getAuthStatus(for serviceId: String) -> (isAuthenticated: Bool, email: String, isExpired: Bool) {
-        // Check if it's a config-based service
-        if serviceDiscoveryManager.services.first(where: { $0.id == serviceId })?.isConfigBased ?? false {
-            return (true, "Local Configuration", false)
-        }
-
-        // Get from auth manager for API-based services
-        if let status = authManager.getStatus(for: serviceId) {
-            return (status.isAuthenticated, status.email ?? "", status.isExpired)
-        }
-
-        return (false, "", false)
+        static let refreshDebounce: TimeInterval = 0.5
     }
 
-    /// Generic service action handler - works for any service dynamically
-    private func handleServiceAction(_ action: String, for serviceId: String) {
-        switch action {
-        case "connect":
-            initiateServiceAuth(serviceId)
-        case "disconnect":
-            if let serviceType = ServiceType(rawValue: serviceId.lowercased()) {
-                performDisconnect(for: serviceType) { _, _ in
-                    // Disconnect completed, status will be refreshed by file monitor
-                }
-            }
-        case "reconnect":
-            initiateServiceAuth(serviceId)
-        default:
-            break
-        }
-    }
-
-    // Get app version from Info.plist
     private var appVersion: String {
         if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
             return "v\(version)"
         }
         return ""
     }
-    
-
 
     var body: some View {
         VStack(spacing: 0) {
@@ -104,138 +325,133 @@ struct SettingsView: View {
                     }
                 }
 
-                // Services Section - dynamically discovered
                 Section("Services") {
-                    if serviceDiscoveryManager.isLoading && serviceDiscoveryManager.services.isEmpty {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                            Text("Discovering services...")
-                                .foregroundColor(.secondary)
-                        }
-                        .padding(.vertical, 8)
-                    } else if serviceDiscoveryManager.services.isEmpty {
-                        Text("No services discovered. Make sure CLIProxyAPI is running.")
-                            .foregroundColor(.red)
-                            .font(.caption)
-                            .padding(.vertical, 8)
-                    } else {
-                        VStack(spacing: 12) {
-                            ForEach(serviceDiscoveryManager.services, id: \.id) { service in
-                                ServiceItemView(
-                                    serviceId: service.id,
-                                    serviceName: service.displayName,
-                                    iconName: service.icon ?? "icon-claude.png",
-                                    isAuthenticated: {
-                                        let status = getAuthStatus(for: service.id)
-                                        return status.isAuthenticated || service.isConfigBased
-                                    }(),
-                                    email: {
-                                        let status = getAuthStatus(for: service.id)
-                                        return status.isAuthenticated ? status.email : (service.isConfigBased ? "Config-based" : "")
-                                    }(),
-                                    isExpired: getAuthStatus(for: service.id).isExpired,
-                                    isAuthenticating: isAuthenticatingServiceID == service.id,
-                                    onConnect: {
-                                        isAuthenticatingServiceID = service.id
-                                        handleServiceAction("connect", for: service.id)
-                                    },
-                                    onDisconnect: {
-                                        handleServiceAction("disconnect", for: service.id)
-                                    },
-                                    onReconnect: {
-                                        isAuthenticatingServiceID = service.id
-                                        handleServiceAction("reconnect", for: service.id)
-                                    },
-                                    onFetchModels: {
-                                        CLIProxyAPI.shared.getAvailableModels(for: service.id) { _ in
-                                            // Models fetched - handled by ServiceItemView
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                        .padding(.vertical, 8)
-                    }
-                }
+                    ServiceRow(
+                        serviceType: .antigravity,
+                        iconName: "icon-antigravity.png",
+                        accounts: authManager.accounts(for: .antigravity),
+                        isAuthenticating: authenticatingService == .antigravity,
+                        helpText: "Antigravity provides OAuth-based access to various AI models including Gemini and Claude. One login gives you access to multiple AI services.",
+                        isEnabled: serverManager.isProviderEnabled("antigravity"),
+                        customTitle: nil,
+                        onConnect: { connectService(.antigravity) },
+                        onDisconnect: { account in disconnectAccount(account) },
+                        onToggleDisabled: { account in toggleAccountDisabled(account) },
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("antigravity", enabled: enabled) },
+                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
+                    ) { EmptyView() }
 
-                // Local Models Section
-                Section("Local Models") {
-                    // Show active model instances by role
-                    ForEach(ModelRole.allCases.filter { modelManager.getInstance(for: $0) != nil }) { role in
-                        if let instance = modelManager.getInstance(for: role) {
-                            let status = modelManager.statuses[instance.id]
-                            HStack {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    HStack(spacing: 6) {
-                                        Circle()
-                                            .fill(status?.running == true ? Color.green : Color.gray)
-                                            .frame(width: 8, height: 8)
-                                        Text(role.displayName)
-                                            .font(.headline)
-                                    }
-                                    Text(instance.model.components(separatedBy: "/").last ?? instance.model)
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                        .lineLimit(1)
-                                }
-
-                                Spacer()
-
-                                if status?.running == true {
-                                    Text(":\(instance.port)")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-
-                                Button(action: {
-                                    if status?.running == true {
-                                        modelManager.stop(instance.id)
-                                    } else {
-                                        modelManager.start(instance.id) { _ in }
-                                    }
-                                }) {
-                                    Image(systemName: status?.running == true ? "stop.fill" : "play.fill")
-                                }
-                                .buttonStyle(.borderless)
-                            }
-                            .padding(.vertical, 2)
-                        }
+                    ServiceRow(
+                        serviceType: .claude,
+                        iconName: "icon-claude.png",
+                        accounts: authManager.accounts(for: .claude),
+                        isAuthenticating: authenticatingService == .claude,
+                        helpText: nil,
+                        isEnabled: serverManager.isProviderEnabled("claude"),
+                        customTitle: serverManager.vercelGatewayEnabled && !serverManager.vercelApiKey.isEmpty ? "Claude Code (via Vercel)" : nil,
+                        onConnect: { connectService(.claude) },
+                        onDisconnect: { account in disconnectAccount(account) },
+                        onToggleDisabled: { account in toggleAccountDisabled(account) },
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("claude", enabled: enabled) },
+                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
+                    ) {
+                        VercelGatewayControls(serverManager: serverManager)
                     }
 
-                    // Settings button
-                    HStack {
-                        Spacer()
-                        Button(action: { showingSLMSettings = true }) {
-                            Label("Configure Models", systemImage: "gear")
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                    .padding(.vertical, 4)
+                    ServiceRow(
+                        serviceType: .codex,
+                        iconName: "icon-codex.png",
+                        accounts: authManager.accounts(for: .codex),
+                        isAuthenticating: authenticatingService == .codex,
+                        helpText: nil,
+                        isEnabled: serverManager.isProviderEnabled("codex"),
+                        customTitle: nil,
+                        onConnect: { connectService(.codex) },
+                        onDisconnect: { account in disconnectAccount(account) },
+                        onToggleDisabled: { account in toggleAccountDisabled(account) },
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("codex", enabled: enabled) },
+                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
+                    ) { EmptyView() }
+
+                    ServiceRow(
+                        serviceType: .gemini,
+                        iconName: "icon-gemini.png",
+                        accounts: authManager.accounts(for: .gemini),
+                        isAuthenticating: authenticatingService == .gemini,
+                        helpText: "⚠️ Note: If you're an existing Gemini user with multiple projects, authentication will use your default project. Set your desired project as default in Google AI Studio before connecting.",
+                        isEnabled: serverManager.isProviderEnabled("gemini"),
+                        customTitle: nil,
+                        onConnect: { connectService(.gemini) },
+                        onDisconnect: { account in disconnectAccount(account) },
+                        onToggleDisabled: { account in toggleAccountDisabled(account) },
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("gemini", enabled: enabled) },
+                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
+                    ) { EmptyView() }
+
+                    ServiceRow(
+                        serviceType: .copilot,
+                        iconName: "icon-copilot.png",
+                        accounts: authManager.accounts(for: .copilot),
+                        isAuthenticating: authenticatingService == .copilot,
+                        helpText: "GitHub Copilot provides access to Claude, GPT, Gemini and other models via your Copilot subscription.",
+                        isEnabled: serverManager.isProviderEnabled("github-copilot"),
+                        customTitle: nil,
+                        onConnect: { connectService(.copilot) },
+                        onDisconnect: { account in disconnectAccount(account) },
+                        onToggleDisabled: { account in toggleAccountDisabled(account) },
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("github-copilot", enabled: enabled) },
+                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
+                    ) { EmptyView() }
+
+                    ServiceRow(
+                        serviceType: .qwen,
+                        iconName: "icon-qwen.png",
+                        accounts: authManager.accounts(for: .qwen),
+                        isAuthenticating: authenticatingService == .qwen,
+                        helpText: nil,
+                        isEnabled: serverManager.isProviderEnabled("qwen"),
+                        customTitle: nil,
+                        onConnect: { showingQwenEmailPrompt = true },
+                        onDisconnect: { account in disconnectAccount(account) },
+                        onToggleDisabled: { account in toggleAccountDisabled(account) },
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("qwen", enabled: enabled) },
+                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
+                    ) { EmptyView() }
+
+                    ServiceRow(
+                        serviceType: .zai,
+                        iconName: "icon-zai.png",
+                        accounts: authManager.accounts(for: .zai),
+                        isAuthenticating: authenticatingService == .zai,
+                        helpText: "Z.AI GLM provides access to GLM-4.7 and other models via API key. Get your key at https://z.ai/manage-apikey/apikey-list",
+                        isEnabled: serverManager.isProviderEnabled("zai"),
+                        customTitle: nil,
+                        onConnect: { showingZaiApiKeyPrompt = true },
+                        onDisconnect: { account in disconnectAccount(account) },
+                        onToggleDisabled: { account in toggleAccountDisabled(account) },
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("zai", enabled: enabled) },
+                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
+                    ) { EmptyView() }
                 }
             }
             .formStyle(.grouped)
-            // Removed .scrollDisabled(true) to allow Form scrolling
+            .scrollDisabled(expandedRowCount == 0)
 
             Spacer()
-                .frame(height: 12)
+                .frame(height: 6)
 
-            // Footer outside Form
+            // Footer
             VStack(spacing: 4) {
                 HStack(spacing: 4) {
                     Text("VibeProxy \(appVersion) was made possible thanks to")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    Link("CLIProxyAPI", destination: URL(string: "https://github.com/router-for-me/CLIProxyAPI")!)
+                    Link("CLIProxyAPIPlus", destination: URL(string: "https://github.com/router-for-me/CLIProxyAPIPlus")!)
                         .font(.caption)
                         .underline()
                         .foregroundColor(.secondary)
                         .onHover { inside in
-                            if inside {
-                                NSCursor.pointingHand.push()
-                            } else {
-                                NSCursor.pop()
-                            }
+                            if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                         }
                     Text("|")
                         .font(.caption)
@@ -246,7 +462,7 @@ struct SettingsView: View {
                 }
 
                 HStack(spacing: 4) {
-                    Text("© 2025")
+                    Text("© 2026")
                         .font(.caption)
                         .foregroundColor(.secondary)
                     Link("Automaze, Ltd.", destination: URL(string: "https://automaze.io")!)
@@ -254,11 +470,7 @@ struct SettingsView: View {
                         .underline()
                         .foregroundColor(.secondary)
                         .onHover { inside in
-                            if inside {
-                                NSCursor.pointingHand.push()
-                            } else {
-                                NSCursor.pop()
-                            }
+                            if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                         }
                     Text("All rights reserved.")
                         .font(.caption)
@@ -267,56 +479,70 @@ struct SettingsView: View {
 
                 Link("Report an issue", destination: URL(string: "https://github.com/automazeio/vibeproxy/issues")!)
                     .font(.caption)
+                    .padding(.top, 6)
                     .onHover { inside in
-                        if inside {
-                            NSCursor.pointingHand.push()
-                        } else {
-                            NSCursor.pop()
-                        }
+                        if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                     }
             }
             .padding(.bottom, 12)
         }
-        .frame(width: 480, height: 490)
-        .sheet(isPresented: $showingEmailPrompt) {
+        .frame(width: 480, height: 740)
+        .sheet(isPresented: $showingQwenEmailPrompt) {
             VStack(spacing: 16) {
-                Text(promptedServiceID.capitalized + " Account Email")
+                Text("Qwen Account Email")
                     .font(.headline)
-                Text("Enter your " + promptedServiceID.lowercased() + " account email address")
+                Text("Enter your Qwen account email address")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                TextField("your.email@example.com", text: $promptedEmail)
+                TextField("your.email@example.com", text: $qwenEmail)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 250)
                 HStack(spacing: 12) {
                     Button("Cancel") {
-                        showingEmailPrompt = false
-                        promptedEmail = ""
+                        showingQwenEmailPrompt = false
+                        qwenEmail = ""
                     }
                     Button("Continue") {
-                        showingEmailPrompt = false
-                        completeServiceAuthWithEmail(promptedServiceID, email: promptedEmail)
+                        showingQwenEmailPrompt = false
+                        startQwenAuth(email: qwenEmail)
                     }
-                    .disabled(promptedEmail.isEmpty)
+                    .disabled(qwenEmail.isEmpty)
                     .keyboardShortcut(.defaultAction)
                 }
             }
             .padding(24)
             .frame(width: 350)
         }
-        .sheet(isPresented: $showingSLMSettings) {
-            LocalModelSettingsView(modelManager: modelManager)
-                .frame(width: 700, height: 600)
+        .sheet(isPresented: $showingZaiApiKeyPrompt) {
+            VStack(spacing: 16) {
+                Text("Z.AI API Key")
+                    .font(.headline)
+                Text("Enter your Z.AI API key from https://z.ai/manage-apikey/apikey-list")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextField("", text: $zaiApiKey)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 300)
+                HStack(spacing: 12) {
+                    Button("Cancel") {
+                        showingZaiApiKeyPrompt = false
+                        zaiApiKey = ""
+                    }
+                    Button("Add Key") {
+                        showingZaiApiKeyPrompt = false
+                        startZaiAuth(apiKey: zaiApiKey)
+                    }
+                    .disabled(zaiApiKey.isEmpty)
+                    .keyboardShortcut(.defaultAction)
+                }
+            }
+            .padding(24)
+            .frame(width: 400)
         }
         .onAppear {
             authManager.checkAuthStatus()
             checkLaunchAtLogin()
             startMonitoringAuthDirectory()
-            
-            // Discover services from CLIProxyAPI
-            serviceDiscoveryManager.discoverServices(forceRefresh: true) {
-                NSLog("[SettingsView] Service discovery completed")
-            }
         }
         .onDisappear {
             stopMonitoringAuthDirectory()
@@ -328,6 +554,22 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - Actions
+    
+    private func toggleAccountDisabled(_ account: AuthAccount) {
+        if authManager.toggleAccountDisabled(account) {
+            authResultSuccess = true
+            authResultMessage = account.isDisabled
+                ? "✓ Enabled \(account.displayName)"
+                : "✓ Disabled \(account.displayName)"
+            showingAuthResult = true
+        } else {
+            authResultSuccess = false
+            authResultMessage = "Failed to update \(account.displayName). Please try again."
+            showingAuthResult = true
+        }
+    }
+    
     private func openAuthFolder() {
         let authDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cli-proxy-api")
         NSWorkspace.shared.open(authDir)
@@ -342,7 +584,7 @@ struct SettingsView: View {
                     try SMAppService.mainApp.unregister()
                 }
             } catch {
-                print("Failed to toggle launch at login: \(error)")
+                NSLog("[SettingsView] Failed to toggle launch at login: %@", error.localizedDescription)
             }
         }
     }
@@ -352,156 +594,180 @@ struct SettingsView: View {
             launchAtLogin = SMAppService.mainApp.status == .enabled
         }
     }
-
-    /// Initiate authentication for any service
-    private func initiateServiceAuth(_ serviceId: String) {
-        isAuthenticatingServiceID = serviceId
-
-        // Services that require email input
-        if serviceId.lowercased() == "qwen" {
-            showingEmailPrompt = true
-            promptedServiceID = serviceId
-            promptedEmail = ""
-            return
+    
+    private func connectService(_ serviceType: ServiceType) {
+        authenticatingService = serviceType
+        NSLog("[SettingsView] Starting %@ authentication", serviceType.displayName)
+        
+        let command: AuthCommand
+        switch serviceType {
+        case .claude: command = .claudeLogin
+        case .codex: command = .codexLogin
+        case .copilot: command = .copilotLogin
+        case .gemini: command = .geminiLogin
+        case .qwen:
+            authenticatingService = nil
+            return // handled separately with email prompt
+        case .antigravity: command = .antigravityLogin
+        case .zai:
+            authenticatingService = nil
+            return // handled separately with API key prompt
         }
-
-        // Services with local setup (config-based)
-        if serviceDiscoveryManager.services.first(where: { $0.id == serviceId })?.isConfigBased ?? false {
-            authResultMessage = "✓ \(serviceId) is configured locally and ready to use."
-            showingAuthResult = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                isAuthenticatingServiceID = nil
-            }
-            return
-        }
-
-        // Generic OAuth flow for other services
-        NSLog("[SettingsView] Starting authentication for service: %@", serviceId)
-        CLIProxyAPI.shared.authenticateService(serviceId) { success, message in
+        
+        serverManager.runAuthCommand(command) { success, output in
+            NSLog("[SettingsView] Auth completed - success: %d, output: %@", success, output)
             DispatchQueue.main.async {
-                isAuthenticatingServiceID = nil
-                authResultMessage = message ?? (success ? "✓ Authentication successful!" : "✗ Authentication failed")
-                showingAuthResult = true
-            }
-        }
-    }
-
-    /// Complete service authentication with email
-    private func completeServiceAuthWithEmail(_ serviceId: String, email: String) {
-        NSLog("[SettingsView] Authenticating %@ with email: %@", serviceId, email)
-
-        CLIProxyAPI.shared.authenticateService(serviceId) { success, message in
-            DispatchQueue.main.async {
-                isAuthenticatingServiceID = nil
-                authResultMessage = message ?? (success ? "✓ Authentication successful!" : "✗ Authentication failed")
-                showingAuthResult = true
+                self.authenticatingService = nil
+                
                 if success {
-                    authManager.checkAuthStatus()
+                    self.authResultSuccess = true
+                    // For Copilot, use the output which contains the device code
+                    if serviceType == .copilot && (output.contains("Code copied") || output.contains("code:")) {
+                        self.authResultMessage = output
+                    } else {
+                        self.authResultMessage = self.successMessage(for: serviceType)
+                    }
+                    self.showingAuthResult = true
+                } else {
+                    self.authResultSuccess = false
+                    self.authResultMessage = "Authentication failed. Please check if the browser opened and try again.\n\nDetails: \(output.isEmpty ? "No output from authentication process" : output)"
+                    self.showingAuthResult = true
                 }
             }
         }
     }
-
+    
+    private func successMessage(for serviceType: ServiceType) -> String {
+        switch serviceType {
+        case .claude:
+            return "🌐 Browser opened for Claude Code authentication.\n\nPlease complete the login in your browser.\n\nThe app will automatically detect your credentials."
+        case .codex:
+            return "🌐 Browser opened for Codex authentication.\n\nPlease complete the login in your browser.\n\nThe app will automatically detect your credentials."
+        case .copilot:
+            return "🌐 GitHub Copilot authentication started!\n\nPlease visit github.com/login/device and enter the code shown.\n\nThe app will automatically detect your credentials."
+        case .gemini:
+            return "🌐 Browser opened for Gemini authentication.\n\nPlease complete the login in your browser.\n\n⚠️ Note: If you have multiple projects, the default project will be used."
+        case .qwen:
+            return "🌐 Browser opened for Qwen authentication.\n\nPlease complete the login in your browser."
+        case .antigravity:
+            return "🌐 Browser opened for Antigravity authentication.\n\nPlease complete the login in your browser."
+        case .zai:
+            return "✓ Z.AI API key added successfully.\n\nYou can now use GLM models through the proxy."
+        }
+    }
+    
+    private func startQwenAuth(email: String) {
+        authenticatingService = .qwen
+        NSLog("[SettingsView] Starting Qwen authentication")
+        
+        serverManager.runAuthCommand(.qwenLogin(email: email)) { success, output in
+            NSLog("[SettingsView] Auth completed - success: %d, output: %@", success, output)
+            DispatchQueue.main.async {
+                self.authenticatingService = nil
+                self.qwenEmail = ""
+                
+                if success {
+                    self.authResultSuccess = true
+                    self.authResultMessage = self.successMessage(for: .qwen)
+                    self.showingAuthResult = true
+                } else {
+                    self.authResultSuccess = false
+                    self.authResultMessage = "Authentication failed.\n\nDetails: \(output.isEmpty ? "No output" : output)"
+                    self.showingAuthResult = true
+                }
+            }
+        }
+    }
+    
+    private func startZaiAuth(apiKey: String) {
+        authenticatingService = .zai
+        NSLog("[SettingsView] Adding Z.AI API key")
+        
+        serverManager.saveZaiApiKey(apiKey) { success, output in
+            NSLog("[SettingsView] Z.AI key save completed - success: %d, output: %@", success, output)
+            DispatchQueue.main.async {
+                self.authenticatingService = nil
+                self.zaiApiKey = ""
+                
+                if success {
+                    self.authResultSuccess = true
+                    self.authResultMessage = self.successMessage(for: .zai)
+                    self.showingAuthResult = true
+                    self.authManager.checkAuthStatus()
+                } else {
+                    self.authResultSuccess = false
+                    self.authResultMessage = "Failed to save API key.\n\nDetails: \(output.isEmpty ? "Unknown error" : output)"
+                    self.showingAuthResult = true
+                }
+            }
+        }
+    }
+    
+    private func disconnectAccount(_ account: AuthAccount) {
+        let wasRunning = serverManager.isRunning
+        
+        // Stop server, delete file, restart
+        let cleanup = {
+            if self.authManager.deleteAccount(account) {
+                self.authResultSuccess = true
+                self.authResultMessage = "✓ Removed \(account.displayName) from \(account.type.displayName)"
+            } else {
+                self.authResultSuccess = false
+                self.authResultMessage = "Failed to remove account"
+            }
+            self.showingAuthResult = true
+            
+            if wasRunning {
+                DispatchQueue.main.asyncAfter(deadline: .now() + Timing.serverRestartDelay) {
+                    self.serverManager.start { _ in }
+                }
+            }
+        }
+        
+        if wasRunning {
+            serverManager.stop { cleanup() }
+        } else {
+            cleanup()
+        }
+    }
+    
+    // MARK: - File Monitoring
+    
     private func startMonitoringAuthDirectory() {
         let authDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cli-proxy-api")
-
-        // Create directory if it doesn't exist
         try? FileManager.default.createDirectory(at: authDir, withIntermediateDirectories: true)
-
+        
         let fileDescriptor = open(authDir.path, O_EVTONLY)
         guard fileDescriptor >= 0 else { return }
-
+        
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fileDescriptor,
             eventMask: [.write, .delete, .rename],
             queue: DispatchQueue.main
         )
-
-        let manager = authManager
-        source.setEventHandler {
-            // Refresh auth status when directory changes
-            NSLog("[FileMonitor] Auth directory changed - refreshing status")
-            manager.checkAuthStatus()
+        
+        source.setEventHandler { [self] in
+            // Debounce rapid file changes to prevent UI flashing
+            pendingRefresh?.cancel()
+            let workItem = DispatchWorkItem {
+                NSLog("[FileMonitor] Auth directory changed - refreshing status")
+                authManager.checkAuthStatus()
+            }
+            pendingRefresh = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + Timing.refreshDebounce, execute: workItem)
         }
-
+        
         source.setCancelHandler {
             close(fileDescriptor)
         }
-
+        
         source.resume()
         fileMonitor = source
     }
-
+    
     private func stopMonitoringAuthDirectory() {
+        pendingRefresh?.cancel()
         fileMonitor?.cancel()
         fileMonitor = nil
     }
-
-    private func performDisconnect(for serviceType: ServiceType, completion: @escaping (Bool, String) -> Void) {
-        let authDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cli-proxy-api")
-        let wasRunning = serverManager.isRunning
-        let manager = serverManager
-
-        let cleanupWork: () -> Void = {
-            DispatchQueue.global(qos: .userInitiated).async {
-                var disconnectResult: (Bool, String)
-                
-                do {
-                    if let enumerator = FileManager.default.enumerator(
-                        at: authDir,
-                        includingPropertiesForKeys: [.isRegularFileKey],
-                        options: [.skipsHiddenFiles]
-                    ) {
-                        var targetURL: URL?
-                        
-                        for case let fileURL as URL in enumerator {
-                            guard fileURL.pathExtension == "json" else { continue }
-                            
-                            let data = try Data(contentsOf: fileURL, options: [.mappedIfSafe])
-                            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                                  let type = json["type"] as? String,
-                                  type.lowercased() == serviceType.rawValue else {
-                                continue
-                            }
-                            
-                            targetURL = fileURL
-                            break
-                        }
-                        
-                        if let targetURL = targetURL {
-                            try FileManager.default.removeItem(at: targetURL)
-                            NSLog("[Disconnect] Deleted auth file: %@", targetURL.path)
-                            disconnectResult = (true, "\(serviceType.displayName) disconnected successfully")
-                        } else {
-                            disconnectResult = (false, "No \(serviceType.displayName) credentials were found.")
-                        }
-                    } else {
-                        disconnectResult = (false, "Unable to access credentials directory.")
-                    }
-                } catch {
-                    disconnectResult = (false, "Failed to disconnect \(serviceType.displayName): \(error.localizedDescription)")
-                }
-                
-                DispatchQueue.main.async {
-                    completion(disconnectResult.0, disconnectResult.1)
-                    if wasRunning {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + DisconnectTiming.serverRestartDelay) {
-                            manager.start { _ in }
-                        }
-                    }
-                }
-            }
-        }
-
-        if wasRunning {
-            serverManager.stop {
-                cleanupWork()
-            }
-        } else {
-            cleanupWork()
-        }
-    }
 }
-
-// Make managers observable
-extension ServerManager: ObservableObject {}

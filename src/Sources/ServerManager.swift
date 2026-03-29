@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import AppKit
 
 private struct RingBuffer<Element> {
     private var storage: [Element?]
@@ -43,10 +44,37 @@ private struct RingBuffer<Element> {
     }
 }
 
-class ServerManager {
+class ServerManager: ObservableObject {
     private var process: Process?
     @Published private(set) var isRunning = false
     private(set) var port = 8317
+
+    /// Provider enabled states - when disabled, models are excluded via oauth-excluded-models
+    @Published var enabledProviders: [String: Bool] = [:] {
+        didSet {
+            UserDefaults.standard.set(enabledProviders, forKey: "enabledProviders")
+        }
+    }
+
+    /// Vercel AI Gateway configuration for Claude requests
+    @Published var vercelGatewayEnabled: Bool = false {
+        didSet {
+            UserDefaults.standard.set(vercelGatewayEnabled, forKey: "vercelGatewayEnabled")
+            onVercelConfigChanged?()
+        }
+    }
+    @Published var vercelApiKey: String = "" {
+        didSet {
+            UserDefaults.standard.set(vercelApiKey, forKey: "vercelApiKey")
+            onVercelConfigChanged?()
+        }
+    }
+    var onVercelConfigChanged: (() -> Void)?
+
+    /// Helper class to capture output text across closures
+    private class OutputCapture {
+        var text = ""
+    }
     private var logBuffer: RingBuffer<String>
     private let maxLogLines = 1000
     private let processQueue = DispatchQueue(label: "io.automaze.vibeproxy.server-process", qos: .userInitiated)
@@ -59,8 +87,38 @@ class ServerManager {
     
     var onLogUpdate: (([String]) -> Void)?
 
+    /// OAuth provider keys used in config.yaml oauth-excluded-models
+    static let oauthProviderKeys: [String: String] = [
+        "claude": "claude",
+        "codex": "codex",
+        "gemini": "gemini-cli",
+        "github-copilot": "github-copilot",
+        "antigravity": "antigravity",
+        "qwen": "qwen"
+    ]
+
     init() {
         logBuffer = RingBuffer(capacity: maxLogLines)
+        if let saved = UserDefaults.standard.dictionary(forKey: "enabledProviders") as? [String: Bool] {
+            enabledProviders = saved
+        }
+        vercelGatewayEnabled = UserDefaults.standard.bool(forKey: "vercelGatewayEnabled")
+        vercelApiKey = UserDefaults.standard.string(forKey: "vercelApiKey") ?? ""
+    }
+
+    /// Check if a provider is enabled (defaults to true if not set)
+    func isProviderEnabled(_ providerKey: String) -> Bool {
+        return enabledProviders[providerKey] ?? true
+    }
+
+    /// Set provider enabled state and regenerate config (hot reload - no restart needed)
+    func setProviderEnabled(_ providerKey: String, enabled: Bool) {
+        enabledProviders[providerKey] = enabled
+        addLog(enabled ? "✓ Enabled provider: \(providerKey)" : "⚠️ Disabled provider: \(providerKey)")
+
+        // Regenerate config - CLIProxyAPI hot reloads config.yaml automatically
+        _ = getConfigPath()
+        addLog("Config updated (hot reload)")
     }
     
     deinit {
@@ -74,10 +132,10 @@ class ServerManager {
             completion(true)
             return
         }
-        
+
         // Clean up any orphaned processes from previous crashes
         killOrphanedProcesses()
-        
+
         // Use bundled binary from app bundle
         guard let resourcePath = Bundle.main.resourcePath else {
             addLog("❌ Error: Could not find resource path")
@@ -85,17 +143,17 @@ class ServerManager {
             return
         }
         
-        let bundledPath = (resourcePath as NSString).appendingPathComponent("cli-proxy-api")
+        let bundledPath = (resourcePath as NSString).appendingPathComponent("cli-proxy-api-plus")
         guard FileManager.default.fileExists(atPath: bundledPath) else {
-            addLog("❌ Error: cli-proxy-api binary not found at \(bundledPath)")
+            addLog("❌ Error: cli-proxy-api-plus binary not found at \(bundledPath)")
             completion(false)
             return
         }
         
-        // Use bundled config
-        let configPath = (resourcePath as NSString).appendingPathComponent("config.yaml")
-        guard FileManager.default.fileExists(atPath: configPath) else {
-            addLog("❌ Error: config.yaml not found at \(configPath)")
+        // Use config path (merged with Z.AI if keys exist)
+        let configPath = getConfigPath()
+        guard !configPath.isEmpty && FileManager.default.fileExists(atPath: configPath) else {
+            addLog("❌ Error: config.yaml not found")
             completion(false)
             return
         }
@@ -127,10 +185,14 @@ class ServerManager {
         
         // Handle termination
         process?.terminationHandler = { [weak self] process in
+            // Clear pipe handlers to prevent memory leaks
+            outputPipe.fileHandleForReading.readabilityHandler = nil
+            errorPipe.fileHandleForReading.readabilityHandler = nil
+            
             DispatchQueue.main.async {
                 self?.isRunning = false
                 self?.addLog("Server stopped with code: \(process.terminationStatus)")
-                NotificationCenter.default.post(name: NSNotification.Name("ServerStatusChanged"), object: nil)
+                NotificationCenter.default.post(name: .serverStatusChanged, object: nil)
             }
         }
         
@@ -145,7 +207,7 @@ class ServerManager {
             DispatchQueue.main.asyncAfter(deadline: .now() + Timing.readinessCheckDelay) { [weak self] in
                 guard let self = self else { return }
                 if let process = self.process, process.isRunning {
-                    NotificationCenter.default.post(name: NSNotification.Name("ServerStatusChanged"), object: nil)
+                    NotificationCenter.default.post(name: .serverStatusChanged, object: nil)
                     completion(true)
                 } else {
                     self.addLog("⚠️ Server exited before becoming ready")
@@ -162,7 +224,7 @@ class ServerManager {
         guard let process = process else {
             DispatchQueue.main.async {
                 self.isRunning = false
-                NotificationCenter.default.post(name: NSNotification.Name("ServerStatusChanged"), object: nil)
+                NotificationCenter.default.post(name: .serverStatusChanged, object: nil)
                 completion?()
             }
             return
@@ -194,179 +256,47 @@ class ServerManager {
                 self.process = nil
                 self.isRunning = false
                 self.addLog("✓ Server stopped")
-                NotificationCenter.default.post(name: NSNotification.Name("ServerStatusChanged"), object: nil)
+                NotificationCenter.default.post(name: .serverStatusChanged, object: nil)
                 completion?()
             }
         }
     }
     
-    func runAuggieSetup(completion: @escaping (Bool, String) -> Void) {
-        // Use bundled binary from app bundle
-        guard let resourcePath = Bundle.main.resourcePath else {
-            completion(false, "Could not find resource path")
-            return
-        }
-
-        let bundledPath = (resourcePath as NSString).appendingPathComponent("cli-proxy-api")
-        guard FileManager.default.fileExists(atPath: bundledPath) else {
-            completion(false, "Binary not found at \(bundledPath)")
-            return
-        }
-
-        // Get the config path
-        let configPath = (resourcePath as NSString).appendingPathComponent("config.yaml")
-        guard FileManager.default.fileExists(atPath: configPath) else {
-            completion(false, "Config not found at \(configPath)")
-            return
-        }
-
-        let setupProcess = Process()
-        setupProcess.executableURL = URL(fileURLWithPath: bundledPath)
-        setupProcess.arguments = ["--config", configPath, "auggie-setup", "--auto"]
-
-        // Create pipes for output
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        setupProcess.standardOutput = outputPipe
-        setupProcess.standardError = errorPipe
-
-        // Set environment to inherit from parent
-        setupProcess.environment = ProcessInfo.processInfo.environment
-
-        do {
-            NSLog("[Setup] Starting auggie-setup: %@ with args: %@", bundledPath, setupProcess.arguments?.joined(separator: " ") ?? "none")
-            try setupProcess.run()
-            addLog("Auggie setup process started (PID: \(setupProcess.processIdentifier))")
-            NSLog("[Setup] Process started with PID: %d", setupProcess.processIdentifier)
-
-            setupProcess.waitUntilExit()
-
-            let exitCode = setupProcess.terminationStatus
-            NSLog("[Setup] Auggie setup completed with exit code: %d", exitCode)
-
-            // Read output
-            let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-
-            let output = String(data: outputData, encoding: .utf8) ?? ""
-            let error = String(data: errorData, encoding: .utf8) ?? ""
-
-            if exitCode == 0 {
-                addLog("Auggie setup completed successfully")
-                completion(true, output.isEmpty ? "Auggie setup completed successfully" : output)
-            } else {
-                let message = error.isEmpty ? (output.isEmpty ? "Auggie setup failed with code \(exitCode)" : output) : error
-                addLog("Auggie setup failed: \(message)")
-                completion(false, message)
-            }
-        } catch {
-            NSLog("[Setup] Failed to start auggie-setup: %@", error.localizedDescription)
-            completion(false, "Failed to start auggie-setup: \(error.localizedDescription)")
-        }
-    }
-
-    func runCursorSetup(completion: @escaping (Bool, String) -> Void) {
-        // Use bundled binary from app bundle
-        guard let resourcePath = Bundle.main.resourcePath else {
-            completion(false, "Could not find resource path")
-            return
-        }
-
-        let bundledPath = (resourcePath as NSString).appendingPathComponent("cli-proxy-api")
-        guard FileManager.default.fileExists(atPath: bundledPath) else {
-            completion(false, "Binary not found at \(bundledPath)")
-            return
-        }
-
-        // Get the config path
-        let configPath = (resourcePath as NSString).appendingPathComponent("config.yaml")
-        guard FileManager.default.fileExists(atPath: configPath) else {
-            completion(false, "Config not found at \(configPath)")
-            return
-        }
-
-        let setupProcess = Process()
-        setupProcess.executableURL = URL(fileURLWithPath: bundledPath)
-        setupProcess.arguments = ["--config", configPath, "cursor-setup", "--auto"]
-
-        // Create pipes for output
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        setupProcess.standardOutput = outputPipe
-        setupProcess.standardError = errorPipe
-
-        // Set environment to inherit from parent
-        setupProcess.environment = ProcessInfo.processInfo.environment
-
-        do {
-            NSLog("[Setup] Starting cursor-setup: %@ with args: %@", bundledPath, setupProcess.arguments?.joined(separator: " ") ?? "none")
-            try setupProcess.run()
-            addLog("Cursor setup process started (PID: \(setupProcess.processIdentifier))")
-            NSLog("[Setup] Process started with PID: %d", setupProcess.processIdentifier)
-
-            setupProcess.waitUntilExit()
-
-            let exitCode = setupProcess.terminationStatus
-            NSLog("[Setup] Cursor setup completed with exit code: %d", exitCode)
-
-            // Read output
-            let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-
-            let output = String(data: outputData, encoding: .utf8) ?? ""
-            let error = String(data: errorData, encoding: .utf8) ?? ""
-
-            if exitCode == 0 {
-                addLog("Cursor setup completed successfully")
-                completion(true, output.isEmpty ? "Cursor setup completed successfully" : output)
-            } else {
-                let message = error.isEmpty ? (output.isEmpty ? "Cursor setup failed with code \(exitCode)" : output) : error
-                addLog("Cursor setup failed: \(message)")
-                completion(false, message)
-            }
-        } catch {
-            NSLog("[Setup] Failed to start cursor-setup: %@", error.localizedDescription)
-            completion(false, "Failed to start cursor-setup: \(error.localizedDescription)")
-        }
-    }
-
     func runAuthCommand(_ command: AuthCommand, completion: @escaping (Bool, String) -> Void) {
         // Use bundled binary from app bundle
         guard let resourcePath = Bundle.main.resourcePath else {
             completion(false, "Could not find resource path")
             return
         }
-
-        let bundledPath = (resourcePath as NSString).appendingPathComponent("cli-proxy-api")
+        
+        let bundledPath = (resourcePath as NSString).appendingPathComponent("cli-proxy-api-plus")
         guard FileManager.default.fileExists(atPath: bundledPath) else {
             completion(false, "Binary not found at \(bundledPath)")
             return
         }
-
+        
         let authProcess = Process()
         authProcess.executableURL = URL(fileURLWithPath: bundledPath)
-
+        
         // Get the config path
         let configPath = (resourcePath as NSString).appendingPathComponent("config.yaml")
-
+        
         var qwenEmail: String?
-
+        
         switch command {
         case .claudeLogin:
             authProcess.arguments = ["--config", configPath, "-claude-login"]
         case .codexLogin:
             authProcess.arguments = ["--config", configPath, "-codex-login"]
+        case .copilotLogin:
+            authProcess.arguments = ["--config", configPath, "-github-copilot-login"]
         case .geminiLogin:
             authProcess.arguments = ["--config", configPath, "-login"]
         case .qwenLogin(let email):
             authProcess.arguments = ["--config", configPath, "-qwen-login"]
             qwenEmail = email
-        case .auggieSetup:
-            runAuggieSetup(completion: completion)
-            return
-        case .cursorSetup:
-            runCursorSetup(completion: completion)
-            return
+        case .antigravityLogin:
+            authProcess.arguments = ["--config", configPath, "-antigravity-login"]
         }
         
         // Create pipes for output
@@ -377,6 +307,19 @@ class ServerManager {
         authProcess.standardError = errorPipe
         authProcess.standardInput = inputPipe
         
+        // For Copilot, we need to capture the device code from output
+        let capture = OutputCapture()
+        
+        if case .copilotLogin = command {
+            outputPipe.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                if let str = String(data: data, encoding: .utf8), !str.isEmpty {
+                    capture.text += str
+                    NSLog("[Auth] Copilot output: %@", str)
+                }
+            }
+        }
+        
         // For Gemini login, automatically send newline to accept default project
         if case .geminiLogin = command {
             DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 3.0) {
@@ -385,6 +328,19 @@ class ServerManager {
                     if let data = "\n".data(using: .utf8) {
                         try? inputPipe.fileHandleForWriting.write(contentsOf: data)
                         NSLog("[Auth] Sent newline to accept default project")
+                    }
+                }
+            }
+        }
+
+        // For Codex login, avoid blocking on the manual callback prompt after ~15s.
+        if case .codexLogin = command {
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 12.0) {
+                // Send newline before the prompt to keep waiting for browser callback.
+                if authProcess.isRunning {
+                    if let data = "\n".data(using: .utf8) {
+                        try? inputPipe.fileHandleForWriting.write(contentsOf: data)
+                        NSLog("[Auth] Sent newline to keep Codex login waiting for callback")
                     }
                 }
             }
@@ -425,24 +381,60 @@ class ServerManager {
                     // Authentication completed successfully
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                         // Give file system a moment to write the credential file
-                        NotificationCenter.default.post(name: NSNotification.Name("AuthDirectoryChanged"), object: nil)
+                        NotificationCenter.default.post(name: .authDirectoryChanged, object: nil)
                     }
                 }
             }
             
-            // Wait briefly to check if process crashes immediately
-            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 1.0) {
+            // Wait briefly to check if process crashes immediately or to capture output
+            let waitTime: TimeInterval = (command == .copilotLogin) ? 2.0 : 1.0
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + waitTime) {
                 if authProcess.isRunning {
-                    // Process is still running after 1 second - browser likely opened
-                    NSLog("[Auth] Process running after 1s, returning success")
+                    // Process is still running - check for Copilot device code
+                    NSLog("[Auth] Process running after wait, returning success")
+                    
+                    // For Copilot, try to extract the device code from output
+                    if case .copilotLogin = command {
+                        // Extract code from output like "enter the code: XXXX-XXXX"
+                        if let codeRange = capture.text.range(of: "enter the code: "),
+                           let endRange = capture.text[codeRange.upperBound...].range(of: "\n") {
+                            let code = String(capture.text[codeRange.upperBound..<endRange.lowerBound]).trimmingCharacters(in: .whitespaces)
+                            // Copy code to clipboard
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(code, forType: .string)
+                            completion(true, "🌐 Browser opened for GitHub authentication.\n\n📋 Code copied to clipboard:\n\n\(code)\n\nJust paste it in the browser!\n\nThe app will automatically detect when you're authenticated.")
+                            return
+                        } else if capture.text.contains("enter the code:") {
+                            // Try simpler extraction
+                            let lines = capture.text.components(separatedBy: "\n")
+                            for line in lines {
+                                if line.contains("enter the code:") {
+                                    let parts = line.components(separatedBy: "enter the code:")
+                                    if parts.count > 1 {
+                                        let code = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+                                        // Copy code to clipboard
+                                        NSPasteboard.general.clearContents()
+                                        NSPasteboard.general.setString(code, forType: .string)
+                                        completion(true, "🌐 Browser opened for GitHub authentication.\n\n📋 Code copied to clipboard:\n\n\(code)\n\nJust paste it in the browser!\n\nThe app will automatically detect when you're authenticated.")
+                                        return
+                                    }
+                                }
+                            }
+                        }
+                        // Fallback if we couldn't extract the code
+                        completion(true, "🌐 Browser opened for GitHub authentication.\n\nCheck your terminal or the opened browser for the device code.\n\nThe app will automatically detect when you're authenticated.")
+                        return
+                    }
+                    
                     completion(true, "🌐 Browser opened for authentication.\n\nPlease complete the login in your browser.\n\nThe app will automatically detect when you're authenticated.")
                 } else {
                     // Process died quickly - check for error
-                    let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-                    let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                    let outputData = try? outputPipe.fileHandleForReading.readDataToEndOfFile()
+                    let errorData = try? errorPipe.fileHandleForReading.readDataToEndOfFile()
                     
-                    let output = String(data: outputData, encoding: .utf8) ?? ""
-                    let error = String(data: errorData, encoding: .utf8) ?? ""
+                    var output = String(data: outputData ?? Data(), encoding: .utf8) ?? ""
+                    if output.isEmpty { output = capture.text }
+                    let error = String(data: errorData ?? Data(), encoding: .utf8) ?? ""
                     
                     NSLog("[Auth] Process died quickly - output: %@", output.isEmpty ? "(empty)" : String(output.prefix(200)))
                     
@@ -476,16 +468,168 @@ class ServerManager {
         }
     }
     
+    /// Saves a Z.AI API key to the auth directory
+    func saveZaiApiKey(_ apiKey: String, completion: @escaping (Bool, String) -> Void) {
+        let authDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cli-proxy-api")
+        
+        // Create auth directory if needed
+        do {
+            try FileManager.default.createDirectory(at: authDir, withIntermediateDirectories: true)
+        } catch {
+            completion(false, "Failed to create auth directory: \(error.localizedDescription)")
+            return
+        }
+        
+        // Generate unique filename with masked key for display
+        let keyPreview = String(apiKey.prefix(8)) + "..." + String(apiKey.suffix(4))
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let filename = "zai-\(UUID().uuidString.prefix(8)).json"
+        let filePath = authDir.appendingPathComponent(filename)
+        
+        // Create auth JSON matching the format used by other providers
+        let authData: [String: Any] = [
+            "type": "zai",
+            "email": keyPreview,
+            "api_key": apiKey,
+            "created": timestamp
+        ]
+        
+        do {
+            let jsonData = try JSONSerialization.data(withJSONObject: authData, options: .prettyPrinted)
+            try jsonData.write(to: filePath)
+            // Set secure permissions (0600 - owner read/write only)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: filePath.path)
+            addLog("✓ Z.AI API key saved to \(filename)")
+            
+            // Restart server to pick up new config (getConfigPath will merge Z.AI keys)
+            let wasRunning = isRunning
+            if wasRunning {
+                stop { [weak self] in
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        self?.start { _ in }
+                    }
+                }
+            }
+            
+            completion(true, "API key saved successfully")
+        } catch {
+            completion(false, "Failed to save API key: \(error.localizedDescription)")
+        }
+    }
+    
+    /// Returns the config path to use, merging bundled config with Z.AI provider and provider exclusions
+    func getConfigPath() -> String {
+        guard let resourcePath = Bundle.main.resourcePath else {
+            return ""
+        }
+
+        let bundledConfigPath = (resourcePath as NSString).appendingPathComponent("config.yaml")
+        let authDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cli-proxy-api")
+
+        // Check for Z.AI auth files
+        var zaiApiKeys: [String] = []
+        if let files = try? FileManager.default.contentsOfDirectory(at: authDir, includingPropertiesForKeys: nil) {
+            for file in files where file.lastPathComponent.hasPrefix("zai-") && file.pathExtension == "json" {
+                if let data = try? Data(contentsOf: file),
+                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let apiKey = json["api_key"] as? String {
+                    zaiApiKeys.append(apiKey)
+                }
+            }
+        }
+
+        // Build list of disabled providers
+        var disabledProviders: [String] = []
+        for (serviceKey, oauthKey) in Self.oauthProviderKeys {
+            if !isProviderEnabled(serviceKey) {
+                disabledProviders.append(oauthKey)
+            }
+        }
+
+        // If no Z.AI keys and no disabled providers, use bundled config
+        guard !zaiApiKeys.isEmpty || !disabledProviders.isEmpty else {
+            return bundledConfigPath
+        }
+
+        // Generate merged config
+        guard let bundledContent = try? String(contentsOfFile: bundledConfigPath, encoding: .utf8) else {
+            return bundledConfigPath
+        }
+        
+        var additionalConfig = ""
+
+        // Build oauth-excluded-models section for disabled providers
+        if !disabledProviders.isEmpty {
+            additionalConfig += """
+
+# Provider exclusions (auto-added by VibeProxy)
+# Disabled providers have all models excluded
+oauth-excluded-models:
+
+"""
+            for provider in disabledProviders.sorted() {
+                additionalConfig += "  \(provider):\n"
+                additionalConfig += "    - \"*\"\n"
+            }
+        }
+
+        // Build Z.AI openai-compatibility section (only if Z.AI is enabled)
+        if !zaiApiKeys.isEmpty && isProviderEnabled("zai") {
+            additionalConfig += """
+
+# Z.AI GLM Provider (auto-added by VibeProxy)
+openai-compatibility:
+  - name: "zai"
+    base-url: "https://api.z.ai/api/coding/paas/v4"
+    api-key-entries:
+
+"""
+            for key in zaiApiKeys {
+                // Escape special YAML characters in double-quoted strings
+                let escapedKey = key
+                    .replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "\"", with: "\\\"")
+                    .replacingOccurrences(of: "\n", with: "\\n")
+                    .replacingOccurrences(of: "\t", with: "\\t")
+                additionalConfig += "      - api-key: \"\(escapedKey)\"\n"
+            }
+            additionalConfig += """
+    models:
+      - name: "glm-4.7"
+        alias: "glm-4.7"
+      - name: "glm-4-plus"
+        alias: "glm-4-plus"
+      - name: "glm-4-air"
+        alias: "glm-4-air"
+      - name: "glm-4-flash"
+        alias: "glm-4-flash"
+"""
+        }
+
+        let mergedContent = bundledContent + additionalConfig
+        let mergedConfigPath = authDir.appendingPathComponent("merged-config.yaml")
+        
+        do {
+            try mergedContent.write(to: mergedConfigPath, atomically: true, encoding: .utf8)
+            // Set secure permissions (0600 - owner read/write only) since config contains API keys
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: mergedConfigPath.path)
+            return mergedConfigPath.path
+        } catch {
+            NSLog("[ServerManager] Failed to write merged config: %@", error.localizedDescription)
+            return bundledConfigPath
+        }
+    }
+    
     func getLogs() -> [String] {
         return logBuffer.elements()
     }
     
-    /// Kill any orphaned cli-proxy-api processes that might be running
+    /// Kill any orphaned cli-proxy-api-plus processes that might be running
     private func killOrphanedProcesses() {
         // First check if any processes exist using pgrep
         let checkTask = Process()
         checkTask.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
-        checkTask.arguments = ["-f", "cli-proxy-api"]
+        checkTask.arguments = ["-f", "cli-proxy-api-plus"]
         
         let outputPipe = Pipe()
         checkTask.standardOutput = outputPipe
@@ -507,7 +651,7 @@ class ServerManager {
                     // Now kill them
                     let killTask = Process()
                     killTask.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-                    killTask.arguments = ["-9", "-f", "cli-proxy-api"]
+                    killTask.arguments = ["-9", "-f", "cli-proxy-api-plus"]
                     
                     try killTask.run()
                     killTask.waitUntilExit()
@@ -524,11 +668,11 @@ class ServerManager {
     }
 }
 
-enum AuthCommand {
+enum AuthCommand: Equatable {
     case claudeLogin
     case codexLogin
+    case copilotLogin
     case geminiLogin
     case qwenLogin(email: String)
-    case auggieSetup
-    case cursorSetup
+    case antigravityLogin
 }

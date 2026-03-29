@@ -1,245 +1,157 @@
 # Amp CLI Setup Guide
 
-This guide explains how to configure Amp CLI to work with VibeProxy, enabling you to use both Factory and Amp through a single proxy server.
+This guide explains how to configure Amp CLI to work with VibeProxy, enabling you to use your existing subscriptions (Claude Max, ChatGPT Plus, Gemini) through Amp CLI.
 
 ## Overview
 
 VibeProxy integrates with Amp CLI by:
-- Routing Amp management requests (login, settings) to ampcode.com
-- Routing Amp model requests through CLIProxyAPI
-- Automatically falling back to ampcode.com for models you haven't authenticated locally
+- Routing Amp login directly to ampcode.com (preserves OAuth cookies)
+- Routing model requests through CLIProxyAPI (uses your local subscriptions)
+- **No fallback** - you must authenticate the providers you want to use
 
 ## Prerequisites
 
 - VibeProxy installed and running
 - Amp CLI installed (`amp --version` to verify)
+- Active subscription (Claude Max, ChatGPT Plus, or Gemini)
 
-## Setup Steps
+## Setup
 
 ### 1. Configure Amp URL
 
-Edit or create `~/.config/amp/settings.json`:
-
 ```bash
 mkdir -p ~/.config/amp
-cat > ~/.config/amp/settings.json << 'EOF'
-{
-  "amp.url": "http://localhost:8317"
-}
-EOF
+echo '{"amp.url": "http://localhost:8317"}' > ~/.config/amp/settings.json
 ```
 
-This tells Amp CLI to use VibeProxy instead of connecting directly to ampcode.com.
+### 2. Authenticate Your Providers (Required)
 
-### 2. Login to Amp
+You must authenticate at least one provider to use Amp through VibeProxy:
 
-Run the Amp login command:
+```bash
+# Claude (Anthropic) - uses your Claude Max/Pro subscription
+/Applications/VibeProxy.app/Contents/Resources/cli-proxy-api-plus \
+  -config /Applications/VibeProxy.app/Contents/Resources/config.yaml \
+  -claude-login
+
+# ChatGPT (OpenAI) - uses your ChatGPT Plus/Pro subscription
+/Applications/VibeProxy.app/Contents/Resources/cli-proxy-api-plus \
+  -config /Applications/VibeProxy.app/Contents/Resources/config.yaml \
+  -codex-login
+
+# Gemini (Google) - uses your Google AI subscription
+/Applications/VibeProxy.app/Contents/Resources/cli-proxy-api-plus \
+  -config /Applications/VibeProxy.app/Contents/Resources/config.yaml \
+  -login
+```
+
+### 3. Login to Amp (Optional)
+
+If you want to use Amp's management features:
 
 ```bash
 amp login
 ```
 
-This will:
-1. Open your browser to `http://localhost:8317/api/auth/cli-login`
-2. VibeProxy forwards the request to ampcode.com
-3. You complete the login in your browser
-4. Amp CLI saves your API key to `~/.local/share/amp/secrets.json`
-
-### 3. Fix the Secrets File Format
-
-After login, the secrets file will have URL-specific keys that CLIProxyAPI can't read. You need to add a simple `apiKey` field.
-
-**Open the secrets file:**
-
-```bash
-cat ~/.local/share/amp/secrets.json
-```
-
-You'll see something like:
-
-```json
-{
-  "apiKey@https://ampcode.com/": "sgamp_user_01XXXXX...",
-  "apiKey@http://localhost:8317": "sgamp_user_01XXXXX..."
-}
-```
-
-**Edit the file to add the `apiKey` field:**
-
-```bash
-nano ~/.local/share/amp/secrets.json
-```
-
-Add a new line with just `apiKey` (copy the value from one of the existing keys):
-
-```json
-{
-  "apiKey@https://ampcode.com/": "sgamp_user_01XXXXX...",
-  "apiKey@http://localhost:8317": "sgamp_user_01XXXXX...",
-  "apiKey": "sgamp_user_01XXXXX..."
-}
-```
-
-**Important:** The value should be identical to the other keys - just copy/paste it.
-
-**Or use this one-liner to do it automatically:**
-
-```bash
-python3 << 'EOF'
-import json
-import os
-
-secrets_file = os.path.expanduser('~/.local/share/amp/secrets.json')
-
-with open(secrets_file, 'r') as f:
-    data = json.load(f)
-
-# Get the API key from any URL-specific key
-api_key = data.get('apiKey@https://ampcode.com/', data.get('apiKey@http://localhost:8317', ''))
-
-if api_key and 'apiKey' not in data:
-    data['apiKey'] = api_key
-    with open(secrets_file, 'w') as f:
-        json.dump(data, f, indent=2)
-    print('✅ Added apiKey field to secrets.json')
-elif 'apiKey' in data:
-    print('✅ apiKey field already exists')
-else:
-    print('❌ No API key found in secrets.json')
-EOF
-```
+Your browser will open to ampcode.com for authentication.
 
 ### 4. Restart VibeProxy
 
-For CLIProxyAPI to pick up the new API key:
+Quit and relaunch VibeProxy from the menu bar.
 
-1. Quit VibeProxy from the menu bar
-2. Launch VibeProxy again
-
-## Usage
-
-Now you can use Amp CLI normally:
+### 5. Test
 
 ```bash
-# Interactive mode
-amp
-
-# Direct prompt
-amp "Write a hello world in Python"
-
-# With specific mode
-amp --mode smart "Explain quantum computing"
+amp "Say hello"
 ```
 
 ## How It Works
 
-### Request Routing
-
-```
+```text
 Amp CLI
-  ↓
-  http://localhost:8317 (ThinkingProxy)
-  ↓
-  ├─ /auth/cli-login → /api/auth/cli-login → ampcode.com (login)
-  ├─ /provider/* → /api/provider/* → CLIProxyAPI:8318 (model requests)
-  └─ /api/* → ampcode.com (management requests)
+  │
+  ▼
+http://localhost:8317 (VibeProxy)
+  │
+  ├─► /auth/cli-login ──────────► https://ampcode.com (direct redirect)
+  │
+  ├─► /provider/* ──────────────► CLIProxyAPI:8318
+  │                                      │
+  │                               Local OAuth token?
+  │                                      │
+  │                               ┌──────┴──────┐
+  │                               │             │
+  │                              YES           NO
+  │                               │             │
+  │                         Use your        ERROR
+  │                         subscription   (auth_unavailable)
+  │
+  └─► /api/* (management) ──────► https://ampcode.com
 ```
 
-### Model Fallback
+## Provider Priority
 
-When Amp requests a model:
+When logged into multiple providers (Claude, ChatGPT, Gemini, etc.), Amp may pick models from any of them. Use **Provider Priority** to control which providers are active.
 
-1. **Local OAuth available?** (e.g., you ran `--codex-login` for GPT models)
-   - ✅ Uses your ChatGPT Plus/Pro subscription (no Amp credits)
-   
-2. **No local OAuth?**
-   - ✅ Falls back to ampcode.com using your Amp API key
-   - Uses Amp credits
+### Enable/Disable Providers
 
-**Example:**
-- If you've authenticated Claude (`--claude-login`), Claude models use your subscription
-- Gemini models without local OAuth will use Amp credits
+In VibeProxy Settings, each provider has a toggle switch:
+- **Enabled** (default) - Provider's models are available to Amp
+- **Disabled** - Provider's models are excluded from Amp
+
+Changes apply instantly via hot reload - no restart needed.
+
+### Use Cases
+
+- **Single provider mode** - Disable all but one provider to ensure Amp always uses that provider
+- **Avoid rate limits** - Disable providers you've hit rate limits on
+- **Testing** - Quickly switch between providers to compare responses
+
+### Notes
+
+- When all providers are disabled, Amp falls back to its free tier (rate limited)
+- Provider toggles only affect model availability, not authentication status
+- You remain logged into disabled providers and can re-enable them anytime
 
 ## Troubleshooting
 
 ### "auth_unavailable: no auth available"
 
-**Problem:** CLIProxyAPI can't find the Amp API key.
+You haven't authenticated the provider for the model you're trying to use.
 
-**Solutions:**
-1. Verify `~/.local/share/amp/secrets.json` has the `apiKey` field (see Step 3)
-2. Restart VibeProxy to reload the secrets file
-3. Check permissions: `ls -la ~/.local/share/amp/secrets.json` (should be readable)
+**Solution:** Run the appropriate login command:
+- For Claude models: `-claude-login`
+- For GPT models: `-codex-login`
+- For Gemini models: `-login`
 
-### "Unable to connect"
+Then restart VibeProxy.
 
-**Problem:** Amp can't reach the proxy.
+### OAuth token expired
 
-**Solutions:**
-1. Verify VibeProxy is running (check menu bar)
-2. Verify `AMP_URL` is set: `echo $AMP_URL` (should show `http://localhost:8317`)
-3. Test the proxy: `curl http://localhost:8317/api/user` (should redirect or return HTML)
-
-### "404 page not found" in browser during login
-
-**Problem:** Path rewriting isn't working.
-
-**Solutions:**
-1. Make sure you're using the latest VibeProxy build
-2. Manually add `/api/` to the URL in the browser if needed
-
-### Expired OAuth Tokens
-
-If you have local OAuth tokens that have expired (e.g., old Google/Gemini auth), remove them:
+Re-authenticate the provider:
 
 ```bash
-# List current tokens
+# Check token files
 ls -la ~/.cli-proxy-api/*.json
 
-# Remove expired token (example)
-rm ~/.cli-proxy-api/ran@example.com-*.json
-
-# Restart VibeProxy
-killall CLIProxyMenuBar
-# Then launch VibeProxy again
-```
-
-## Authenticating Local Providers (Optional)
-
-To use your own subscriptions instead of Amp credits for specific models:
-
-### Google/Gemini Models
-```bash
-/Applications/VibeProxy.app/Contents/Resources/cli-proxy-api \
-  -config /Applications/VibeProxy.app/Contents/Resources/config.yaml \
-  -login
-```
-
-### ChatGPT/OpenAI Models
-```bash
-/Applications/VibeProxy.app/Contents/Resources/cli-proxy-api \
-  -config /Applications/VibeProxy.app/Contents/Resources/config.yaml \
-  -codex-login
-```
-
-### Claude/Anthropic Models
-```bash
-/Applications/VibeProxy.app/Contents/Resources/cli-proxy-api \
+# Re-login (example for Claude)
+/Applications/VibeProxy.app/Contents/Resources/cli-proxy-api-plus \
   -config /Applications/VibeProxy.app/Contents/Resources/config.yaml \
   -claude-login
 ```
 
-After authenticating, restart VibeProxy. Those models will now use your subscriptions instead of Amp credits.
+### Login fails in browser
+
+Make sure VibeProxy is running before attempting `amp login`.
 
 ## Benefits
 
-✅ **One proxy for everything** - Factory, Amp, and any other tool  
-✅ **Smart fallback** - Uses your subscriptions when available, Amp credits when not  
-✅ **Seamless integration** - Amp works exactly as before, just through the proxy  
-✅ **Cost optimization** - Maximize use of existing subscriptions, minimize Amp credits  
+- **Use your subscriptions** - Claude Max, ChatGPT Plus, Gemini work through Amp
+- **No surprise charges** - No fallback to Amp credits
+- **Full transparency** - Clear error if provider not authenticated
+- **One proxy** - Factory and Amp share the same setup
 
 ## Additional Resources
 
 - [Amp CLI Documentation](https://ampcode.com/manual)
-- [CLIProxyAPI Amp Integration](https://github.com/router-for-me/CLIProxyAPI/blob/main/docs/amp-cli-integration.md)
 - [Factory Setup Guide](FACTORY_SETUP.md)

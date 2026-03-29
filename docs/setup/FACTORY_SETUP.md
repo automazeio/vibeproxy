@@ -21,6 +21,8 @@ VibeProxy manages OAuth tokens, auto-refreshes them, routes requests, and handle
 - Active **ChatGPT Plus/Pro** subscription for OpenAI Codex access
 - **Google account** for Antigravity access (provides Gemini 3 Pro models - optional)
 - **Google Cloud account** with Gemini API access for Gemini 2.x models (optional)
+- **GitHub Copilot** subscription for Copilot model access (optional) — gives Claude, GPT, and Gemini models via GitHub's API
+- **Z.AI API key** for GLM model access (optional) - get one at [z.ai/manage-apikey/apikey-list](https://z.ai/manage-apikey/apikey-list)
 - Factory CLI installed: `curl -fsSL https://app.factory.ai/cli | sh`
 
 ## Step 1: Install VibeProxy
@@ -53,6 +55,14 @@ Once VibeProxy is running:
    - Select a Google Cloud project (or accept the default)
    - This provides access to **Gemini 2.x** models
    - VibeProxy will automatically save your credentials
+7. **(Optional)** Click **"Connect"** next to GitHub Copilot
+   - Authenticate with your GitHub account
+   - Requires an active GitHub Copilot subscription
+   - This provides access to **Claude Opus 4.6, Sonnet 4.6, Haiku 4.5, GPT-5.3-Codex, and Gemini 3 Pro** via GitHub's API
+8. **(Optional)** Click **"Add Account"** next to Z.AI GLM
+   - Enter your Z.AI API key (get one at [z.ai/manage-apikey/apikey-list](https://z.ai/manage-apikey/apikey-list))
+   - This provides access to **GLM-4.7** and other GLM models
+   - VibeProxy will securely store your API key
 
 ✅ The server starts automatically and runs on port **8317**
 
@@ -121,33 +131,63 @@ Edit your Factory configuration file at `~/.factory/config.json` (if the file do
     },
 
     {
-      "model_display_name": "GPT-5 Codex",
-      "model": "gpt-5-codex",
+      "model_display_name": "AG: Opus 4.5 Thinking",
+      "model": "gemini-claude-opus-4-5-thinking",
       "base_url": "http://localhost:8317/v1",
       "api_key": "dummy-not-used",
       "provider": "openai"
     },
     {
-      "model_display_name": "GPT-5 Codex (Low)",
-      "model": "gpt-5-codex-low",
+      "model_display_name": "AG: Sonnet 4.5 Thinking",
+      "model": "gemini-claude-sonnet-4-5-thinking",
       "base_url": "http://localhost:8317/v1",
       "api_key": "dummy-not-used",
       "provider": "openai"
     },
     {
-      "model_display_name": "GPT-5 Codex (Medium)",
-      "model": "gpt-5-codex-medium",
+      "model_display_name": "AG: Sonnet 4.5",
+      "model": "gemini-claude-sonnet-4-5",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
+    },
+
+    {
+      "model_display_name": "GH: Opus 4.6 (via Copilot)",
+      "model": "claude-opus-4.6",
       "base_url": "http://localhost:8317/v1",
       "api_key": "dummy-not-used",
       "provider": "openai"
     },
     {
-      "model_display_name": "GPT-5 Codex (High)",
-      "model": "gpt-5-codex-high",
+      "model_display_name": "GH: Sonnet 4.6 (via Copilot)",
+      "model": "claude-sonnet-4.6",
       "base_url": "http://localhost:8317/v1",
       "api_key": "dummy-not-used",
       "provider": "openai"
     },
+    {
+      "model_display_name": "GH: Haiku 4.5 (via Copilot)",
+      "model": "claude-haiku-4.5",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
+    },
+    {
+      "model_display_name": "GH: GPT-5.3-Codex (via Copilot)",
+      "model": "gpt-5.3-codex",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
+    },
+    {
+      "model_display_name": "GH: Gemini 3 Pro (via Copilot)",
+      "model": "gemini-3-pro-preview",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
+    },
+
     {
       "model_display_name": "GPT-5.1 Codex",
       "model": "gpt-5.1-codex",
@@ -156,22 +196,8 @@ Edit your Factory configuration file at `~/.factory/config.json` (if the file do
       "provider": "openai"
     },
     {
-      "model_display_name": "GPT-5.1 Codex (Low)",
-      "model": "gpt-5.1-codex-low",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
-      "provider": "openai"
-    },
-    {
-      "model_display_name": "GPT-5.1 Codex (Medium)",
-      "model": "gpt-5.1-codex-medium",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
-      "provider": "openai"
-    },
-    {
       "model_display_name": "GPT-5.1 Codex (High)",
-      "model": "gpt-5.1-codex-high",
+      "model": "gpt-5.1-codex(high)",
       "base_url": "http://localhost:8317/v1",
       "api_key": "dummy-not-used",
       "provider": "openai"
@@ -191,33 +217,47 @@ Edit your Factory configuration file at `~/.factory/config.json` (if the file do
       "provider": "openai"
     },
     {
-      "model_display_name": "GPT-5.1 (Minimal)",
-      "model": "gpt-5.1-minimal",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
-      "provider": "openai"
-    },
-    {
       "model_display_name": "GPT-5.1 (Low)",
-      "model": "gpt-5.1-low",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
-      "provider": "openai"
-    },
-    {
-      "model_display_name": "GPT-5.1 (Medium)",
-      "model": "gpt-5.1-medium",
+      "model": "gpt-5.1(low)",
       "base_url": "http://localhost:8317/v1",
       "api_key": "dummy-not-used",
       "provider": "openai"
     },
     {
       "model_display_name": "GPT-5.1 (High)",
-      "model": "gpt-5.1-high",
+      "model": "gpt-5.1(high)",
       "base_url": "http://localhost:8317/v1",
       "api_key": "dummy-not-used",
       "provider": "openai"
-    },    
+    },
+    {
+      "model_display_name": "GPT-5.2",
+      "model": "gpt-5.2",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
+    },
+    {
+      "model_display_name": "GPT-5.2 (High)",
+      "model": "gpt-5.2(high)",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
+    },
+    {
+      "model_display_name": "GPT-5.2 Codex",
+      "model": "gpt-5.2-codex",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
+    },
+    {
+      "model_display_name": "GPT-5.2 Codex (High)",
+      "model": "gpt-5.2-codex(high)",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
+    },
     {
       "model_display_name": "Gemini 3 Pro",
       "model": "gemini-3-pro-preview",
@@ -267,6 +307,35 @@ Edit your Factory configuration file at `~/.factory/config.json` (if the file do
       "base_url": "http://localhost:8317/v1",
       "api_key": "dummy-not-used",
       "provider": "openai"
+    },
+
+    {
+      "model_display_name": "GLM-4.7",
+      "model": "glm-4.7",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
+    },
+    {
+      "model_display_name": "GLM-4-Plus",
+      "model": "glm-4-plus",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
+    },
+    {
+      "model_display_name": "GLM-4-Air",
+      "model": "glm-4-air",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
+    },
+    {
+      "model_display_name": "GLM-4-Flash",
+      "model": "glm-4-flash",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
     }
   ]
 }
@@ -286,6 +355,7 @@ Edit your Factory configuration file at `~/.factory/config.json` (if the file do
    Then choose from:
    - `claude-opus-4-5` (Claude Opus 4.5 - Most powerful)
    - `claude-sonnet-4-5` (Claude 4.5 Sonnet)
+   - `claude-opus-4.6` (Claude Opus 4.6 via Copilot)
    - `gpt-5.1`, `gpt-5.1-codex`, etc.
    - `gemini-3-pro-preview`, `gemini-3-pro-image-preview`, `gemini-2.5-pro`, etc.
 
@@ -303,7 +373,35 @@ Edit your Factory configuration file at `~/.factory/config.json` (if the file do
     - `*-thinking-10000` - "Think harder" mode (~10K tokens)
     - `*-thinking-32000` - "Ultra think" mode (~32K tokens)
 
+### GitHub Copilot Models
+
+If you have a GitHub Copilot subscription, VibeProxy can route requests through GitHub's API, giving you access to many of the same models via a separate quota.
+
+**Key models:**
+- `claude-opus-4.6` - Claude Opus 4.6 (3x rate)
+- `claude-sonnet-4.6` - Claude Sonnet 4.6 (1x rate, default in Copilot)
+- `claude-haiku-4.5` - Claude Haiku 4.5 (0.33x rate, fast)
+- `gpt-5.3-codex` - GPT-5.3 Codex (1x rate)
+- `gemini-3-pro-preview` - Gemini 3 Pro (1x rate)
+
+> [!NOTE]
+> Copilot model names use **dot-notation** (`claude-opus-4.6`) while Claude Code subscription models use dash-notation (`claude-opus-4-6`). Both work through VibeProxy but route through different auth backends. Use `provider: "openai"` and `base_url` with `/v1` for Copilot models.
+
+**Discovering new model names:** Run `copilot --help` and check the `--model` option for the current list of available models.
+
 ### Gemini Models
+
+### Claude Models via Antigravity
+
+Antigravity provides access to Claude models with a generous usage quota (shared with Sonnet and GPT-OSS). These models are accessed via the OpenAI-compatible API format and require **Antigravity** authentication.
+
+**Available Models:**
+- `gemini-claude-opus-4-5-thinking` - Claude Opus 4.5 with extended thinking (backend-controlled budget)
+- `gemini-claude-sonnet-4-5-thinking` - Claude Sonnet 4.5 with extended thinking (backend-controlled budget)
+- `gemini-claude-sonnet-4-5` - Claude Sonnet 4.5 (no thinking)
+
+> [!TIP]
+> See the [Step 3 configuration example](#step-3-configure-factory-cli) above for the full Factory CLI config including these models.
 
 **Gemini 3 Pro** (via Antigravity - requires Antigravity authentication):
 - `gemini-3-pro-preview` - Gemini 3 Pro (Latest preview model)
@@ -326,12 +424,36 @@ Edit your Factory configuration file at `~/.factory/config.json` (if the file do
 - `qwen3-coder-plus` - Qwen3 Coder Plus (Most capable coding model)
 - `qwen3-coder-flash` - Qwen3 Coder Flash (Fast coding assistant)
 
+### Z.AI GLM Models
+- `glm-4.7` - GLM-4.7 (Latest and most capable GLM model)
+- `glm-4-plus` - GLM-4-Plus (Enhanced GLM model)
+- `glm-4-air` - GLM-4-Air (Balanced performance)
+- `glm-4-flash` - GLM-4-Flash (Fast and efficient)
+
+> [!NOTE]
+> Z.AI GLM models require an API key instead of OAuth authentication. Get your API key at [z.ai/manage-apikey/apikey-list](https://z.ai/manage-apikey/apikey-list) and add it in VibeProxy Settings → Z.AI GLM → Add Account.
+
 ### OpenAI Models
+
+**GPT-5.2** (Latest):
+- `gpt-5.2` - Latest GPT with improved reasoning
+- `gpt-5.2-codex` - Latest Codex for coding tasks
+
+**GPT-5.1**:
 - `gpt-5.1` - Next-gen GPT with better reasoning + planning
-- `gpt-5.1-minimal` / `low` / `medium` / `high` - GPT-5.1 with explicit reasoning effort controls
-- `gpt-5.1-codex` - Latest Codex upgrade (faster reasoning + better tool use)
-- `gpt-5.1-codex-low` / `medium` / `high` - Same model with explicit reasoning effort presets
+- `gpt-5.1-codex` - Codex upgrade (faster reasoning + better tool use)
 - `gpt-5.1-codex-max` - Codex Max optimized for long-horizon agentic coding tasks
+
+**Reasoning Effort Control** (GPT-5.1+):
+
+Use parentheses syntax to control reasoning effort:
+- `gpt-5.2(none)` - No extended reasoning
+- `gpt-5.2(low)` - Low reasoning effort
+- `gpt-5.2(medium)` - Medium reasoning effort
+- `gpt-5.2(high)` - High reasoning effort
+- `gpt-5.2(xhigh)` - Extra high reasoning effort
+
+This works with any GPT-5.x model: `gpt-5.1(high)`, `gpt-5.1-codex(medium)`, `gpt-5.2-codex(high)`, etc.
 
 No manual CLIProxyAPI update is required—VibeProxy automatically keeps CLIProxyAPI up to date via our new auto-update workflow, so you can use new models immediately.
 
@@ -355,7 +477,7 @@ No manual CLIProxyAPI update is required—VibeProxy automatically keeps CLIProx
 ### Verification Checklist
 
 1. ✅ VibeProxy is running (menu bar icon shows green)
-2. ✅ Services (Claude, Codex, and optionally Gemini) show as "Connected" in settings
+2. ✅ Services (Claude, Codex, and optionally Gemini/Copilot) show as "Connected" in settings
 3. ✅ Factory CLI config has the custom models configured
 4. ✅ `droid` can select your custom models
 5. ✅ Test with a simple prompt: "what day is it?"
@@ -400,6 +522,36 @@ If the suffix is not a valid integer (e.g., `-thinking-blabla`), VibeProxy strip
 - Claude Sonnet 4.5 (`claude-sonnet-4-5-*`)
 
 This works seamlessly with Factory CLI - just select the thinking variant in your model selector!
+
+### Interleaved Thinking (Automatic)
+
+When you use extended thinking (`-thinking-*` suffix), VibeProxy automatically enables **interleaved thinking** by adding the `anthropic-beta: interleaved-thinking-2025-05-14` header to your requests.
+
+**What is Interleaved Thinking?**
+
+Without interleaved thinking, Claude thinks once at the beginning and then executes all tool calls. With interleaved thinking enabled, Claude can think *between* tool calls, allowing it to:
+
+- **Reason about tool results** before deciding what to do next
+- **Chain multiple tool calls** with reasoning steps in between
+- **Make more nuanced decisions** based on intermediate results
+- **Adapt its approach** as it learns more from each tool interaction
+
+**Why This Matters for Coding Agents**
+
+AI coding tools like Factory Droids heavily rely on tool use (reading files, searching code, running commands). Interleaved thinking significantly improves the quality of multi-step coding tasks because Claude can:
+
+1. Read a file → *think about what it found* → decide which file to read next
+2. Run a test → *analyze the failure* → make a targeted fix
+3. Search for a pattern → *reason about the results* → refine the search
+
+**Automatic Enablement**
+
+You don't need to configure anything - when you use any `-thinking-*` model variant, VibeProxy automatically:
+1. Adds the thinking parameter to the request body
+2. Injects the `anthropic-beta: interleaved-thinking-2025-05-14` header
+3. Merges with any existing beta headers (no duplicates)
+
+This is enabled by default because if you're opting into extended thinking, you almost certainly want the improved reasoning that interleaved thinking provides for tool-heavy workflows.
 
 ## Tips
 

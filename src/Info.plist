@@ -15,7 +15,7 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.1.0</string>
+    <string>1.5.0</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleVersion</key>
@@ -27,6 +27,16 @@
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSHumanReadableCopyright</key>
-    <string>Copyright © 2025 Automaze, Ltd. All rights reserved. Maintained by Koosha Paridehpour.</string>
+    <string>Copyright © 2025 Automaze, Ltd. All rights reserved.</string>
+    <key>SUFeedURL</key>
+    <string>https://raw.githubusercontent.com/automazeio/vibeproxy/main/appcast.xml</string>
+    <key>SUScheduledCheckInterval</key>
+    <integer>86400</integer>
+    <key>SUAutomaticallyUpdate</key>
+    <false/>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUPublicEDKey</key>
+    <string>WPYQNlG8Z9CI+OBiPa4bph6Dz01vdPRGZhilQGA/rQw=</string>
 </dict>
 </plist>

@@ -1,0 +1,164 @@
+name: Auto Release
+
+on:
+  schedule:
+    - cron: '30 */12 * * *' # Runs every 12 hours as backup (30 min offset from update-cliproxyapi.yml)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: auto-release
+  cancel-in-progress: true
+
+jobs:
+  auto-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.AUTO_UPDATE_TOKEN }}
+          fetch-depth: 0
+
+      - name: Check for open CLIProxyAPI bump PRs
+        id: check-pr
+        env:
+          GH_TOKEN: ${{ secrets.AUTO_UPDATE_TOKEN }}
+        run: |
+          set -e
+          echo "Checking for open CLIProxyAPI bump PRs..."
+          
+          # Find open PRs with bump-cliproxyapi- branch prefix
+          PR_JSON=$(gh pr list --state open --json number,headRefName,title --jq '.[] | select(.headRefName | startswith("bump-cliproxyapi-"))' | head -1)
+          
+          if [ -z "$PR_JSON" ]; then
+            echo "No open CLIProxyAPI bump PRs found."
+            echo "has_pr=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          PR_NUMBER=$(echo "$PR_JSON" | jq -r '.number')
+          PR_BRANCH=$(echo "$PR_JSON" | jq -r '.headRefName')
+          PR_TITLE=$(echo "$PR_JSON" | jq -r '.title')
+          
+          # Extract version from branch name (bump-cliproxyapi-X.Y.Z)
+          CLIPROXY_VERSION=$(echo "$PR_BRANCH" | sed 's/bump-cliproxyapi-//')
+          
+          echo "Found PR #$PR_NUMBER: $PR_TITLE"
+          echo "CLIProxyAPI version: $CLIPROXY_VERSION"
+          
+          echo "has_pr=true" >> $GITHUB_OUTPUT
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          echo "pr_branch=$PR_BRANCH" >> $GITHUB_OUTPUT
+          echo "cliproxy_version=$CLIPROXY_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Merge PR
+        if: steps.check-pr.outputs.has_pr == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.AUTO_UPDATE_TOKEN }}
+        run: |
+          set -e
+          PR_NUMBER="${{ steps.check-pr.outputs.pr_number }}"
+          
+          echo "Merging PR #$PR_NUMBER..."
+          gh pr merge "$PR_NUMBER" --squash --delete-branch
+          
+          echo "✅ PR #$PR_NUMBER merged successfully"
+
+      - name: Pull merged changes
+        if: steps.check-pr.outputs.has_pr == 'true'
+        run: |
+          git pull origin main
+
+      - name: Calculate new version
+        if: steps.check-pr.outputs.has_pr == 'true'
+        id: version
+        run: |
+          set -e
+          
+          # Get current version from latest tag
+          CURRENT_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.0")
+          CURRENT_VERSION="${CURRENT_TAG#v}"
+          
+          echo "Current version: $CURRENT_VERSION"
+          
+          # Parse version components
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
+          
+          # Increment patch version
+          NEW_PATCH=$((PATCH + 1))
+          NEW_VERSION="$MAJOR.$MINOR.$NEW_PATCH"
+          
+          echo "New version: $NEW_VERSION"
+          
+          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Update CHANGELOG.md
+        if: steps.check-pr.outputs.has_pr == 'true'
+        env:
+          CLIPROXY_VERSION: ${{ steps.check-pr.outputs.cliproxy_version }}
+          NEW_VERSION: ${{ steps.version.outputs.new_version }}
+          PR_NUMBER: ${{ steps.check-pr.outputs.pr_number }}
+        run: |
+          set -e
+          
+          TODAY=$(date +%Y-%m-%d)
+          
+          # Build new changelog entry
+          head -n 7 CHANGELOG.md > CHANGELOG.tmp
+          echo "" >> CHANGELOG.tmp
+          printf '%s\n' "## [${NEW_VERSION}] - ${TODAY}" >> CHANGELOG.tmp
+          echo "" >> CHANGELOG.tmp
+          printf '%s\n' "### Updated" >> CHANGELOG.tmp
+          printf '%s\n' "- **CLIProxyAPI ${CLIPROXY_VERSION}** - Latest upstream release (#${PR_NUMBER})" >> CHANGELOG.tmp
+          printf '%s\n' "  - Various upstream improvements and stability enhancements" >> CHANGELOG.tmp
+          echo "" >> CHANGELOG.tmp
+          tail -n +8 CHANGELOG.md >> CHANGELOG.tmp
+          mv CHANGELOG.tmp CHANGELOG.md
+          
+          # Add version link at the bottom (before first existing link)
+          LINK_LINE="[${NEW_VERSION}]: https://github.com/automazeio/vibeproxy/releases/tag/v${NEW_VERSION}"
+          sed -i "0,/^\[.*\]: https:\/\/github.com\/automazeio\/vibeproxy\/releases\/tag\/v/s||${LINK_LINE}\n&|" CHANGELOG.md
+          
+          echo "CHANGELOG.md updated"
+          head -n 20 CHANGELOG.md
+
+      - name: Commit and tag
+        if: steps.check-pr.outputs.has_pr == 'true'
+        env:
+          NEW_VERSION: ${{ steps.version.outputs.new_version }}
+        run: |
+          set -e
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git add CHANGELOG.md
+          git commit -m "Release v$NEW_VERSION"
+          
+          git tag -a "v$NEW_VERSION" -m "Release v$NEW_VERSION"
+          
+          git push origin main
+          git push origin "v$NEW_VERSION"
+          
+          echo "✅ Created and pushed tag v$NEW_VERSION"
+          echo "🚀 This will trigger the release workflow"
+
+      - name: Summary
+        if: steps.check-pr.outputs.has_pr == 'true'
+        env:
+          NEW_VERSION: ${{ steps.version.outputs.new_version }}
+          CLIPROXY_VERSION: ${{ steps.check-pr.outputs.cliproxy_version }}
+          PR_NUMBER: ${{ steps.check-pr.outputs.pr_number }}
+        run: |
+          echo "## Auto Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **PR #$PR_NUMBER merged** - CLIProxyAPI $CLIPROXY_VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Version bumped** - v$NEW_VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🚀 **Release workflow triggered** - Check [Actions](../../actions) for build status" >> $GITHUB_STEP_SUMMARY
