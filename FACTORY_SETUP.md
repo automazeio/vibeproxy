@@ -74,57 +74,29 @@ Edit your Factory configuration file at `~/.factory/config.json` (if the file do
 {
   "custom_models": [
     {
-      "model_display_name": "CC: Opus 4.5 (High)",
-      "model": "claude-opus-4-5-20251101-thinking-32000",
+      "model_display_name": "CC: Opus 4.6 (High)",
+      "model": "claude-opus-4-6-thinking-10000",
       "base_url": "http://localhost:8317",
       "api_key": "dummy-not-used",
       "provider": "anthropic"
     },
     {
-      "model_display_name": "CC: Opus 4.5 (Medium)",
-      "model": "claude-opus-4-5-20251101-thinking-10000",
+      "model_display_name": "CC: Opus 4.6 (XHigh)",
+      "model": "claude-opus-4-6-thinking-32000",
       "base_url": "http://localhost:8317",
       "api_key": "dummy-not-used",
       "provider": "anthropic"
     },
     {
-      "model_display_name": "CC: Opus 4.5 (Low)",
-      "model": "claude-opus-4-5-20251101-thinking-4000",
+      "model_display_name": "CC: Sonnet 4.6 (High)",
+      "model": "claude-sonnet-4-6-thinking-10000",
       "base_url": "http://localhost:8317",
       "api_key": "dummy-not-used",
       "provider": "anthropic"
     },
     {
-      "model_display_name": "CC: Opus 4.5",
-      "model": "claude-opus-4-5-20251101",
-      "base_url": "http://localhost:8317",
-      "api_key": "dummy-not-used",
-      "provider": "anthropic"
-    },    
-    {
-      "model_display_name": "CC: Sonnet 4.5",
-      "model": "claude-sonnet-4-5-20250929",
-      "base_url": "http://localhost:8317",
-      "api_key": "dummy-not-used",
-      "provider": "anthropic"
-    },
-    {
-      "model_display_name": "CC: Sonnet 4.5 (Low)",
-      "model": "claude-sonnet-4-5-20250929-thinking-4000",
-      "base_url": "http://localhost:8317",
-      "api_key": "dummy-not-used",
-      "provider": "anthropic"
-    },
-    {
-      "model_display_name": "CC: Sonnet 4.5 (Medium)",
-      "model": "claude-sonnet-4-5-20250929-thinking-10000",
-      "base_url": "http://localhost:8317",
-      "api_key": "dummy-not-used",
-      "provider": "anthropic"
-    },
-    {
-      "model_display_name": "CC: Sonnet 4.5 (High)",
-      "model": "claude-sonnet-4-5-20250929-thinking-32000",
+      "model_display_name": "CC: Sonnet 4.6 (XHigh)",
+      "model": "claude-sonnet-4-6-thinking-32000",
       "base_url": "http://localhost:8317",
       "api_key": "dummy-not-used",
       "provider": "anthropic"
@@ -189,74 +161,32 @@ Edit your Factory configuration file at `~/.factory/config.json` (if the file do
     },
 
     {
-      "model_display_name": "GPT-5.1 Codex",
-      "model": "gpt-5.1-codex",
+      "model_display_name": "Codex GPT-5.4 (High)",
+      "model": "gpt-5.4(high)",
       "base_url": "http://localhost:8317/v1",
       "api_key": "dummy-not-used",
-      "provider": "openai"
+      "provider": "generic-chat-completion-api"
     },
     {
-      "model_display_name": "GPT-5.1 Codex (High)",
-      "model": "gpt-5.1-codex(high)",
+      "model_display_name": "Codex GPT-5.4 (XHigh)",
+      "model": "gpt-5.4(xhigh)",
       "base_url": "http://localhost:8317/v1",
       "api_key": "dummy-not-used",
-      "provider": "openai"
+      "provider": "generic-chat-completion-api"
     },
     {
-      "model_display_name": "GPT-5.1 Codex Max",
-      "model": "gpt-5.1-codex-max",
+      "model_display_name": "Codex GPT-5.3-Codex (High)",
+      "model": "gpt-5.3-codex(high)",
       "base_url": "http://localhost:8317/v1",
       "api_key": "dummy-not-used",
-      "provider": "openai"
+      "provider": "generic-chat-completion-api"
     },
     {
-      "model_display_name": "GPT-5.1",
-      "model": "gpt-5.1",
+      "model_display_name": "Codex GPT-5.3-Codex (XHigh)",
+      "model": "gpt-5.3-codex(xhigh)",
       "base_url": "http://localhost:8317/v1",
       "api_key": "dummy-not-used",
-      "provider": "openai"
-    },
-    {
-      "model_display_name": "GPT-5.1 (Low)",
-      "model": "gpt-5.1(low)",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
-      "provider": "openai"
-    },
-    {
-      "model_display_name": "GPT-5.1 (High)",
-      "model": "gpt-5.1(high)",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
-      "provider": "openai"
-    },
-    {
-      "model_display_name": "GPT-5.2",
-      "model": "gpt-5.2",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
-      "provider": "openai"
-    },
-    {
-      "model_display_name": "GPT-5.2 (High)",
-      "model": "gpt-5.2(high)",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
-      "provider": "openai"
-    },
-    {
-      "model_display_name": "GPT-5.2 Codex",
-      "model": "gpt-5.2-codex",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
-      "provider": "openai"
-    },
-    {
-      "model_display_name": "GPT-5.2 Codex (High)",
-      "model": "gpt-5.2-codex(high)",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
-      "provider": "openai"
+      "provider": "generic-chat-completion-api"
     },
     {
       "model_display_name": "Gemini 3 Pro",
@@ -353,10 +283,11 @@ Edit your Factory configuration file at `~/.factory/config.json` (if the file do
    /model
    ```
    Then choose from:
-   - `claude-opus-4-5` (Claude Opus 4.5 - Most powerful)
-   - `claude-sonnet-4-5` (Claude 4.5 Sonnet)
+   - `claude-opus-4-6-thinking-10000` / `claude-opus-4-6-thinking-32000`
+   - `claude-sonnet-4-6-thinking-10000` / `claude-sonnet-4-6-thinking-32000`
    - `claude-opus-4.6` (Claude Opus 4.6 via Copilot)
-   - `gpt-5.1`, `gpt-5.1-codex`, etc.
+   - `gpt-5.4(high)`, `gpt-5.4(xhigh)`
+   - `gpt-5.3-codex(high)`, `gpt-5.3-codex(xhigh)`
    - `gemini-3-pro-preview`, `gemini-3-pro-image-preview`, `gemini-2.5-pro`, etc.
 
 3. **Start coding!** Factory will now route all requests through VibeProxy, which handles authentication automatically.
@@ -364,9 +295,11 @@ Edit your Factory configuration file at `~/.factory/config.json` (if the file do
 ## Available Models
 
 ### Claude Models
-- `claude-opus-4-5-20251101` - Claude Opus 4.5 (Most powerful, latest)
-- `claude-sonnet-4-5-20250929` - Claude 4.5 Sonnet
-- **Extended Thinking Variants** (Claude 3.7+, Opus 4/4.5, Sonnet 4):
+- `claude-opus-4-6-thinking-10000` - Claude Opus 4.6 high thinking
+- `claude-opus-4-6-thinking-32000` - Claude Opus 4.6 extra-high thinking
+- `claude-sonnet-4-6-thinking-10000` - Claude Sonnet 4.6 high thinking
+- `claude-sonnet-4-6-thinking-32000` - Claude Sonnet 4.6 extra-high thinking
+- **Extended Thinking Variants** (Claude 3.7+, Opus 4/4.6, Sonnet 4):
   - `*-thinking-NUMBER` - Custom thinking token budget (e.g., `-thinking-5000`)
   - Recommended presets:
     - `*-thinking-4000` - "Think" mode (~4K tokens)
@@ -435,25 +368,25 @@ Antigravity provides access to Claude models with a generous usage quota (shared
 
 ### OpenAI Models
 
-**GPT-5.2** (Latest):
-- `gpt-5.2` - Latest GPT with improved reasoning
-- `gpt-5.2-codex` - Latest Codex for coding tasks
+**Current recommended GPT/Codex examples:**
+- `gpt-5.4(high)` - GPT-5.4 high reasoning
+- `gpt-5.4(xhigh)` - GPT-5.4 extra-high reasoning
+- `gpt-5.3-codex(high)` - GPT-5.3 Codex high reasoning
+- `gpt-5.3-codex(xhigh)` - GPT-5.3 Codex extra-high reasoning
 
-**GPT-5.1**:
-- `gpt-5.1` - Next-gen GPT with better reasoning + planning
-- `gpt-5.1-codex` - Codex upgrade (faster reasoning + better tool use)
-- `gpt-5.1-codex-max` - Codex Max optimized for long-horizon agentic coding tasks
-
-**Reasoning Effort Control** (GPT-5.1+):
+**Reasoning Effort Control**:
 
 Use parentheses syntax to control reasoning effort:
-- `gpt-5.2(none)` - No extended reasoning
-- `gpt-5.2(low)` - Low reasoning effort
-- `gpt-5.2(medium)` - Medium reasoning effort
-- `gpt-5.2(high)` - High reasoning effort
-- `gpt-5.2(xhigh)` - Extra high reasoning effort
+- `gpt-5.4(none)` - No extended reasoning
+- `gpt-5.4(low)` - Low reasoning effort
+- `gpt-5.4(medium)` - Medium reasoning effort
+- `gpt-5.4(high)` - High reasoning effort
+- `gpt-5.4(xhigh)` - Extra high reasoning effort
 
-This works with any GPT-5.x model: `gpt-5.1(high)`, `gpt-5.1-codex(medium)`, `gpt-5.2-codex(high)`, etc.
+This works with GPT/Codex aliases exposed by VibeProxy, including `gpt-5.4(high)` and `gpt-5.3-codex(xhigh)`.
+
+> [!IMPORTANT]
+> For current Factory compatibility, VibeProxy GPT/Codex models should use `provider: "generic-chat-completion-api"` with suffixed aliases such as `gpt-5.4(high)` instead of the `openai` provider. This avoids `400` errors caused by unsupported Responses API prompt-caching fields like `prompt_cache_retention`.
 
 No manual CLIProxyAPI update is required—VibeProxy automatically keeps CLIProxyAPI up to date via our new auto-update workflow, so you can use new models immediately.
 
@@ -492,15 +425,15 @@ VibeProxy automatically adds extended thinking support for Claude models! Simply
 **Model Name Pattern**: `{model-name}-thinking-{NUMBER}`
 
 **Recommended Presets** (based on Anthropic's official guidelines):
-- `claude-sonnet-4-5-20250929-thinking-4000` → **"Think"** (~4K tokens)
-- `claude-sonnet-4-5-20250929-thinking-10000` → **"Think harder"** (~10K tokens)
-- `claude-sonnet-4-5-20250929-thinking-32000` → **"Ultra think"** (~32K tokens)
+- `claude-sonnet-4-6-thinking-4000` → **"Think"** (~4K tokens)
+- `claude-sonnet-4-6-thinking-10000` → **"Think harder"** (~10K tokens)
+- `claude-sonnet-4-6-thinking-32000` → **"Ultra think"** (~32K tokens)
 
 **Custom Budgets**:
 You can specify any token budget number:
-- `claude-sonnet-4-5-20250929-thinking-2000` → 2,000 tokens
-- `claude-sonnet-4-5-20250929-thinking-16000` → 16,000 tokens
-- `claude-sonnet-4-5-20250929-thinking-50000` → 50,000 tokens
+- `claude-sonnet-4-6-thinking-2000` → 2,000 tokens
+- `claude-sonnet-4-6-thinking-16000` → 16,000 tokens
+- `claude-sonnet-4-6-thinking-50000` → 50,000 tokens
 
 **How It Works**:
 1. VibeProxy's thinking proxy intercepts requests on port 8317
@@ -518,8 +451,8 @@ If the suffix is not a valid integer (e.g., `-thinking-blabla`), VibeProxy strip
 - Transparent thought process in the response
 
 **Supported Models**:
-- Claude Opus 4.5 (`claude-opus-4-5-*`)
-- Claude Sonnet 4.5 (`claude-sonnet-4-5-*`)
+- Claude Opus 4.6 (`claude-opus-4-6-*`)
+- Claude Sonnet 4.6 (`claude-sonnet-4-6-*`)
 
 This works seamlessly with Factory CLI - just select the thinking variant in your model selector!
 
