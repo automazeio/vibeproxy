@@ -45,6 +45,8 @@ Built on [CLIProxyAPIPlus](https://github.com/router-for-me/CLIProxyAPIPlus), it
 - 🎨 **Beautiful Icons** - Custom icons with dark mode support
 - 💾 **Self-Contained** - Everything bundled inside the .app (server binary, config, static files)
 
+**Composio Pattern**: ✅ Already compliant - Uses CLIProxyAPIPlus backend with swappable provider support (Claude, ChatGPT, Gemini, Qwen, Antigravity, Z.AI GLM)
+
 
 ## Installation
 
