@@ -75,7 +75,7 @@ Edit your Factory configuration file at `~/.factory/config.json` (if the file do
   "custom_models": [
     {
       "model_display_name": "CC: Opus 4.6 (High)",
-      "model": "claude-opus-4-6-thinking-10000",
+      "model": "claude-opus-4-6(high)",
       "base_url": "http://localhost:8317",
       "api_key": "dummy-not-used",
       "provider": "anthropic"
