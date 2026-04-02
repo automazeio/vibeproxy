@@ -674,7 +674,7 @@ class ThinkingProxy {
                             targetConnection.cancel()
                             originalConnection.cancel()
                         } else {
-                            self.receiveResponse(from: targetConnection, originalConnection: originalConnection)
+                            self.receiveResponse(from: targetConnection, originalConnection: originalConnection, requestPath: path)
                         }
                     }))
                 }
@@ -773,7 +773,7 @@ class ThinkingProxy {
                                                                  method: method, path: path, version: version, 
                                                                  headers: headers, body: body)
                             } else {
-                                self.receiveResponse(from: targetConnection, originalConnection: originalConnection)
+                                self.receiveResponse(from: targetConnection, originalConnection: originalConnection, requestPath: path)
                             }
                         }
                     }))
@@ -835,22 +835,15 @@ class ThinkingProxy {
                     }
                 }
                 
-                // Not a 404 or already has /api/, forward response as-is
-                originalConnection.send(content: data, completion: .contentProcessed({ sendError in
-                    if let sendError = sendError {
-                        NSLog("[ThinkingProxy] Send error: \(sendError)")
-                    }
-                    
-                    if isComplete {
-                        targetConnection.cancel()
-                        originalConnection.send(content: nil, isComplete: true, completion: .contentProcessed({ _ in
-                            originalConnection.cancel()
-                        }))
-                    } else {
-                        // Continue streaming
-                        self.streamNextChunk(from: targetConnection, to: originalConnection)
-                    }
-                }))
+                // Not a 404 or already has /api/, continue with normal response relay.
+                let relay = HTTPResponseRelay(requestPath: path)
+                self.forwardRelayedResponseChunks(
+                    relay.process(data, isComplete: isComplete),
+                    targetConnection: targetConnection,
+                    originalConnection: originalConnection,
+                    isComplete: isComplete,
+                    relay: relay
+                )
             } else if isComplete {
                 targetConnection.cancel()
                 originalConnection.send(content: nil, isComplete: true, completion: .contentProcessed({ _ in
@@ -864,15 +857,15 @@ class ThinkingProxy {
      Receives response from CLIProxyAPI
      Starts the streaming loop for response data
      */
-    private func receiveResponse(from targetConnection: NWConnection, originalConnection: NWConnection) {
+    private func receiveResponse(from targetConnection: NWConnection, originalConnection: NWConnection, requestPath: String) {
         // Start the streaming loop
-        streamNextChunk(from: targetConnection, to: originalConnection)
+        streamNextChunk(from: targetConnection, to: originalConnection, relay: HTTPResponseRelay(requestPath: requestPath))
     }
     
     /**
      Streams response chunks iteratively (uses async scheduling instead of recursion to avoid stack buildup)
      */
-    private func streamNextChunk(from targetConnection: NWConnection, to originalConnection: NWConnection) {
+    private func streamNextChunk(from targetConnection: NWConnection, to originalConnection: NWConnection, relay: HTTPResponseRelay) {
         targetConnection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
             guard let self = self else { return }
             
@@ -884,31 +877,75 @@ class ThinkingProxy {
             }
             
             if let data = data, !data.isEmpty {
-                // Forward response chunk to original client
-                originalConnection.send(content: data, completion: .contentProcessed({ sendError in
-                    if let sendError = sendError {
-                        NSLog("[ThinkingProxy] Send response error: \(sendError)")
-                    }
-                    
-                    if isComplete {
-                        targetConnection.cancel()
-                        // Always close client connection - no keep-alive/pipelining support
-                        originalConnection.send(content: nil, isComplete: true, completion: .contentProcessed({ _ in
-                            originalConnection.cancel()
-                        }))
-                    } else {
-                        // Schedule next iteration of the streaming loop
-                        self.streamNextChunk(from: targetConnection, to: originalConnection)
-                    }
-                }))
+                self.forwardRelayedResponseChunks(
+                    relay.process(data, isComplete: isComplete),
+                    targetConnection: targetConnection,
+                    originalConnection: originalConnection,
+                    isComplete: isComplete,
+                    relay: relay
+                )
             } else if isComplete {
+                self.forwardRelayedResponseChunks(
+                    relay.process(Data(), isComplete: true),
+                    targetConnection: targetConnection,
+                    originalConnection: originalConnection,
+                    isComplete: true,
+                    relay: relay
+                )
+            }
+        }
+    }
+
+    private func forwardRelayedResponseChunks(
+        _ chunks: [Data],
+        targetConnection: NWConnection,
+        originalConnection: NWConnection,
+        isComplete: Bool,
+        relay: HTTPResponseRelay
+    ) {
+        sendResponseChunks(chunks, to: originalConnection) { [weak self] sendError in
+            guard let self = self else { return }
+
+            if let sendError = sendError {
+                NSLog("[ThinkingProxy] Send response error: \(sendError)")
                 targetConnection.cancel()
-                // Always close client connection - no keep-alive/pipelining support
+                originalConnection.cancel()
+                return
+            }
+
+            if isComplete {
+                targetConnection.cancel()
                 originalConnection.send(content: nil, isComplete: true, completion: .contentProcessed({ _ in
                     originalConnection.cancel()
                 }))
+            } else {
+                self.streamNextChunk(from: targetConnection, to: originalConnection, relay: relay)
             }
         }
+    }
+
+    private func sendResponseChunks(_ chunks: [Data], to connection: NWConnection, completion: @escaping (NWError?) -> Void) {
+        guard !chunks.isEmpty else {
+            completion(nil)
+            return
+        }
+
+        func sendChunk(at index: Int) {
+            guard index < chunks.count else {
+                completion(nil)
+                return
+            }
+
+            connection.send(content: chunks[index], completion: .contentProcessed({ error in
+                if let error = error {
+                    completion(error)
+                    return
+                }
+                sendChunk(at: index + 1)
+            }))
+        }
+
+        sendChunk(at: 0)
     }
     
     /**
