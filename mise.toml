@@ -1,0 +1,23 @@
+[tasks.format]
+description = "Format code"
+
+
+[tasks.lint]
+description = "Lint code"
+
+
+[tasks.test]
+description = "Run tests"
+
+
+[tasks.build]
+description = "Build project"
+
+
+[tasks.audit]
+description = "Audit dependencies"
+
+
+[tasks.docs:build]
+description = "Build documentation"
+
