@@ -65,6 +65,14 @@ Built on [CLIProxyAPIPlus](https://github.com/router-for-me/CLIProxyAPIPlus), it
 
 Want to build it yourself? See [**INSTALLATION.md**](INSTALLATION.md) for detailed build instructions.
 
+To test a custom `CLIProxyAPIPlus` build inside VibeProxy, build your forked binary and run:
+
+```bash
+CLI_PROXY_API_PLUS_PATH=/path/to/cli-proxy-api-plus ./create-app-bundle.sh
+```
+
+That overrides the committed bundled `cli-proxy-api-plus` binary for the generated app bundle only.
+
 ## Usage
 
 ### First Launch

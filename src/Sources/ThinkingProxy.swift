@@ -31,13 +31,29 @@ class ThinkingProxy {
     private let stateQueue = DispatchQueue(label: "io.automaze.vibeproxy.thinking-proxy-state")
 
     var vercelConfig = VercelGatewayConfig(enabled: false, apiKey: "")
+    var forceFastServiceTier = false
     
     private enum Config {
-        static let hardTokenCap = 32000
+        static let defaultHardTokenCap = 32_000
+        static let extendedHardTokenCap = 128_000
         static let minimumHeadroom = 1024
         static let headroomRatio = 0.1
         static let vercelGatewayHost = "ai-gateway.vercel.sh"
         static let anthropicVersion = "2023-06-01"
+        static let fastTierEligibleResponsePaths: Set<String> = [
+            "/v1/responses",
+            "/api/v1/responses"
+        ]
+        static let fastTierEligibleModelPrefixes = ["gpt-", "o1", "o3", "o4"]
+        private static let adaptiveModels = ["opus-4-6", "opus-4-7", "sonnet-4-6", "sonnet-4-7"]
+
+        static func isAdaptiveModel(_ model: String) -> Bool {
+            adaptiveModels.contains { model.contains($0) }
+        }
+
+        static func hardTokenCap(for model: String) -> Int {
+            isAdaptiveModel(model) ? extendedHardTokenCap : defaultHardTokenCap
+        }
     }
     
     /**
@@ -273,9 +289,8 @@ class ThinkingProxy {
                 modifiedBody = result.0
                 thinkingEnabled = result.1
             }
-            // Strip cache_control fields that cause 400 errors via the OAuth route
-            if let stripped = stripCacheControl(from: modifiedBody) {
-                modifiedBody = stripped
+            if let requestDefaultsBody = processOpenAIRequestDefaults(jsonString: modifiedBody, path: rewrittenPath) {
+                modifiedBody = requestDefaultsBody
             }
         }
         
@@ -295,63 +310,16 @@ class ThinkingProxy {
               let model = json["model"] as? String else { return false }
         return model.starts(with: "claude-") || model.starts(with: "gemini-claude-")
     }
-
-    /// Strips `cache_control` fields from the request body that cause 400 errors via the OAuth route
-    private func stripCacheControl(from jsonString: String) -> String? {
-        guard let jsonData = jsonString.data(using: .utf8),
-              var json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
-            return nil
-        }
-
-        var modified = false
-
-        func stripFromDictArray(_ array: inout [[String: Any]]) {
-            for i in array.indices {
-                if array[i]["cache_control"] != nil {
-                    array[i].removeValue(forKey: "cache_control")
-                    modified = true
-                }
-                // Recurse into nested content arrays
-                if var nested = array[i]["content"] as? [[String: Any]] {
-                    stripFromDictArray(&nested)
-                    array[i]["content"] = nested
-                }
-            }
-        }
-
-        if var system = json["system"] as? [[String: Any]] {
-            stripFromDictArray(&system)
-            if modified { json["system"] = system }
-        }
-
-        if var messages = json["messages"] as? [[String: Any]] {
-            stripFromDictArray(&messages)
-            if modified { json["messages"] = messages }
-        }
-
-        if var tools = json["tools"] as? [[String: Any]] {
-            stripFromDictArray(&tools)
-            if modified { json["tools"] = tools }
-        }
-
-        guard modified else { return nil }
-
-        guard let modifiedData = try? JSONSerialization.data(withJSONObject: json),
-              let modifiedString = String(data: modifiedData, encoding: .utf8) else {
-            return nil
-        }
-
-        NSLog("[ThinkingProxy] Stripped cache_control fields from request body")
-        return modifiedString
-    }
     
     /**
-     Processes the JSON body to add thinking parameter if model name has a thinking suffix
+     Processes the JSON body to add thinking parameter if model name has a thinking suffix.
+     Uses targeted string replacement so we preserve key ordering and any cache_control fields
+     required for Anthropic prompt caching.
      Returns tuple of (modifiedJSON, needsTransformation)
      */
     private func processThinkingParameter(jsonString: String) -> (String, Bool)? {
         guard let jsonData = jsonString.data(using: .utf8),
-              var json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+              let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
               let model = json["model"] as? String else {
             return nil
         }
@@ -361,13 +329,26 @@ class ThinkingProxy {
             return (jsonString, false)  // Not Claude, pass through
         }
         
-        // Check for thinking suffix pattern: -thinking-NUMBER
+        // Check for thinking suffix pattern: -thinking-NUMBER or -thinking-NUMBER-EFFORT
         let thinkingPrefix = "-thinking-"
         if let thinkingRange = model.range(of: thinkingPrefix, options: .backwards),
            thinkingRange.upperBound < model.endIndex {
             
-            // Extract the number after "-thinking-"
-            let budgetString = String(model[thinkingRange.upperBound...])
+            let suffixString = String(model[thinkingRange.upperBound...])
+            let validEfforts = ["low", "medium", "high", "max"]
+            let budgetString: String
+            var effortLevel: String?
+            if let lastDash = suffixString.lastIndex(of: "-") {
+                let candidate = String(suffixString[suffixString.index(after: lastDash)...])
+                if validEfforts.contains(candidate) {
+                    budgetString = String(suffixString[..<lastDash])
+                    effortLevel = candidate
+                } else {
+                    budgetString = suffixString
+                }
+            } else {
+                budgetString = suffixString
+            }
             
             // For gemini-claude-* models, preserve "-thinking" and only strip the number
             // e.g. gemini-claude-opus-4-5-thinking-10000 -> gemini-claude-opus-4-5-thinking
@@ -379,25 +360,41 @@ class ThinkingProxy {
             } else {
                 cleanModel = String(model[..<thinkingRange.lowerBound])
             }
-            json["model"] = cleanModel
+            var result = jsonString.replacingOccurrences(of: "\"\(model)\"", with: "\"\(cleanModel)\"")
             
             // Only add thinking parameter if it's a valid integer
             if let budget = Int(budgetString), budget > 0 {
-                let effectiveBudget = min(budget, Config.hardTokenCap - 1)
+                let modelCap = Config.hardTokenCap(for: cleanModel)
+                let effectiveBudget = min(budget, modelCap - 1)
                 if effectiveBudget != budget {
                     NSLog("[ThinkingProxy] Adjusted thinking budget from \(budget) to \(effectiveBudget) to stay within limits")
                 }
 
-                // Claude Opus 4.6+ requires adaptive thinking; older models use enabled+budget_tokens
-                let isAdaptiveModel = cleanModel.contains("opus-4-6") || cleanModel.contains("opus-4-7")
+                let isAdaptiveModel = Config.isAdaptiveModel(cleanModel)
                 if isAdaptiveModel {
-                    json["thinking"] = ["type": "adaptive"]
+                    result = injectJSONField(
+                        in: result,
+                        afterKey: "model",
+                        fieldName: "thinking",
+                        fieldValue: #"{"type":"adaptive"}"#
+                    )
+                    if json["output_config"] == nil {
+                        let effort = effortLevel ?? (cleanModel.contains("opus-4-6") ? "max" : "high")
+                        result = injectJSONField(
+                            in: result,
+                            afterKey: "thinking",
+                            fieldName: "output_config",
+                            fieldValue: #"{"effort":"\#(effort)"}"#
+                        )
+                    }
                     NSLog("[ThinkingProxy] Using adaptive thinking for model '\(cleanModel)'")
                 } else {
-                    json["thinking"] = [
-                        "type": "enabled",
-                        "budget_tokens": effectiveBudget
-                    ]
+                    result = injectJSONField(
+                        in: result,
+                        afterKey: "model",
+                        fieldName: "thinking",
+                        fieldValue: #"{"type":"enabled","budget_tokens":\#(effectiveBudget)}"#
+                    )
                 }
                 
                 // Ensure max token limits are greater than the thinking budget
@@ -405,34 +402,33 @@ class ThinkingProxy {
                 // (only relevant for non-adaptive models, but safe to set for all)
                 let tokenHeadroom = max(Config.minimumHeadroom, Int(Double(effectiveBudget) * Config.headroomRatio))
                 let desiredMaxTokens = effectiveBudget + tokenHeadroom
-                var requiredMaxTokens = min(desiredMaxTokens, Config.hardTokenCap)
+                var requiredMaxTokens = min(desiredMaxTokens, modelCap)
                 if requiredMaxTokens <= effectiveBudget {
-                    requiredMaxTokens = min(effectiveBudget + 1, Config.hardTokenCap)
+                    requiredMaxTokens = min(effectiveBudget + 1, modelCap)
                 }
                 
-                let hasMaxOutputTokensField = json.keys.contains("max_output_tokens")
-                var adjusted = false
-                
-                if let currentMaxTokens = json["max_tokens"] as? Int {
-                    if currentMaxTokens <= effectiveBudget {
-                        json["max_tokens"] = requiredMaxTokens
-                    }
-                    adjusted = true
-                }
-                
-                if let currentMaxOutputTokens = json["max_output_tokens"] as? Int {
-                    if currentMaxOutputTokens <= effectiveBudget {
-                        json["max_output_tokens"] = requiredMaxTokens
-                    }
-                    adjusted = true
-                }
-                
-                if !adjusted {
-                    if hasMaxOutputTokensField {
-                        json["max_output_tokens"] = requiredMaxTokens
-                    } else {
-                        json["max_tokens"] = requiredMaxTokens
-                    }
+                result = replaceJSONIntField(
+                    in: result,
+                    key: "max_tokens",
+                    currentValue: json["max_tokens"] as? Int,
+                    minimum: requiredMaxTokens,
+                    budget: effectiveBudget
+                )
+                result = replaceJSONIntField(
+                    in: result,
+                    key: "max_output_tokens",
+                    currentValue: json["max_output_tokens"] as? Int,
+                    minimum: requiredMaxTokens,
+                    budget: effectiveBudget
+                )
+                if json["max_tokens"] == nil && json["max_output_tokens"] == nil {
+                    let insertionKey = json.keys.contains("thinking") ? "thinking" : "model"
+                    result = injectJSONField(
+                        in: result,
+                        afterKey: insertionKey,
+                        fieldName: "max_tokens",
+                        fieldValue: "\(requiredMaxTokens)"
+                    )
                 }
                 
                 NSLog("[ThinkingProxy] Transformed model '\(model)' → '\(cleanModel)' with thinking budget \(effectiveBudget)")
@@ -440,12 +436,8 @@ class ThinkingProxy {
                 // Invalid number - just strip suffix and use vanilla model
                 NSLog("[ThinkingProxy] Stripped invalid thinking suffix from '\(model)' → '\(cleanModel)' (no thinking)")
             }
-            
-            // Convert back to JSON
-            if let modifiedData = try? JSONSerialization.data(withJSONObject: json),
-               let modifiedString = String(data: modifiedData, encoding: .utf8) {
-                return (modifiedString, true)
-            }
+
+            return (result, true)
         } else if model.hasSuffix("-thinking") || model.contains("-thinking(") {
             // Model ends with -thinking or uses -thinking(budget) syntax (e.g. gemini-claude-opus-4-5-thinking, gemini-claude-opus-4-5-thinking(32768))
             // Enable beta header but don't modify body - let backend handle thinking budget
@@ -454,6 +446,69 @@ class ThinkingProxy {
         }
         
         return (jsonString, false)  // No transformation needed
+    }
+
+    private func processOpenAIRequestDefaults(jsonString: String, path: String) -> String? {
+        guard forceFastServiceTier,
+              isFastTierEligibleResponsePath(path),
+              let jsonData = jsonString.data(using: .utf8),
+              var json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+              let model = json["model"] as? String,
+              isFastTierEligibleModel(model),
+              json["service_tier"] == nil else {
+            return nil
+        }
+
+        json["service_tier"] = "priority"
+        NSLog("[ThinkingProxy] Injected service_tier=priority for model '\(model)' on path \(path)")
+
+        guard let modifiedData = try? JSONSerialization.data(withJSONObject: json),
+              let modifiedString = String(data: modifiedData, encoding: .utf8) else {
+            return nil
+        }
+        return modifiedString
+    }
+
+    private func isFastTierEligibleResponsePath(_ path: String) -> Bool {
+        let normalizedPath = path.split(separator: "?").first.map(String.init) ?? path
+        return Config.fastTierEligibleResponsePaths.contains(normalizedPath)
+    }
+
+    private func isFastTierEligibleModel(_ model: String) -> Bool {
+        let normalizedModel = model.lowercased()
+        return Config.fastTierEligibleModelPrefixes.contains { normalizedModel.starts(with: $0) }
+    }
+
+    private func injectJSONField(in json: String, afterKey: String, fieldName: String, fieldValue: String) -> String {
+        let escapedKey = NSRegularExpression.escapedPattern(for: afterKey)
+        let valuePattern = #"(?:\"(?:[^\"\\]|\\.)*\"|-?\d+(?:\.\d+)?|\{[^}]*\}|\[[^\]]*\]|true|false|null)"#
+        let pattern = #""\#(escapedKey)"\s*:\s*\#(valuePattern)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: json, range: NSRange(json.startIndex..., in: json)),
+              let range = Range(match.range, in: json) else {
+            return json
+        }
+
+        var result = json
+        result.insert(contentsOf: ",\"\(fieldName)\":\(fieldValue)", at: range.upperBound)
+        return result
+    }
+
+    private func replaceJSONIntField(in json: String, key: String, currentValue: Int?, minimum: Int, budget: Int) -> String {
+        guard let currentValue, currentValue <= budget else {
+            return json
+        }
+
+        let escapedKey = NSRegularExpression.escapedPattern(for: key)
+        let pattern = #""\#(escapedKey)"(\s*:\s*)\#(currentValue)\b"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return json
+        }
+        return regex.stringByReplacingMatches(
+            in: json,
+            range: NSRange(json.startIndex..., in: json),
+            withTemplate: "\"\(key)\"$1\(minimum)"
+        )
     }
     
     /**
@@ -674,7 +729,7 @@ class ThinkingProxy {
                             targetConnection.cancel()
                             originalConnection.cancel()
                         } else {
-                            self.receiveResponse(from: targetConnection, originalConnection: originalConnection)
+                            self.receiveResponse(from: targetConnection, originalConnection: originalConnection, requestPath: path)
                         }
                     }))
                 }
@@ -773,7 +828,7 @@ class ThinkingProxy {
                                                                  method: method, path: path, version: version, 
                                                                  headers: headers, body: body)
                             } else {
-                                self.receiveResponse(from: targetConnection, originalConnection: originalConnection)
+                                self.receiveResponse(from: targetConnection, originalConnection: originalConnection, requestPath: path)
                             }
                         }
                     }))
@@ -835,22 +890,14 @@ class ThinkingProxy {
                     }
                 }
                 
-                // Not a 404 or already has /api/, forward response as-is
-                originalConnection.send(content: data, completion: .contentProcessed({ sendError in
-                    if let sendError = sendError {
-                        NSLog("[ThinkingProxy] Send error: \(sendError)")
-                    }
-                    
-                    if isComplete {
-                        targetConnection.cancel()
-                        originalConnection.send(content: nil, isComplete: true, completion: .contentProcessed({ _ in
-                            originalConnection.cancel()
-                        }))
-                    } else {
-                        // Continue streaming
-                        self.streamNextChunk(from: targetConnection, to: originalConnection)
-                    }
-                }))
+                let relay = HTTPResponseRelay(requestPath: path)
+                self.forwardRelayedResponseChunks(
+                    relay.process(data, isComplete: isComplete),
+                    targetConnection: targetConnection,
+                    originalConnection: originalConnection,
+                    isComplete: isComplete,
+                    relay: relay
+                )
             } else if isComplete {
                 targetConnection.cancel()
                 originalConnection.send(content: nil, isComplete: true, completion: .contentProcessed({ _ in
@@ -864,15 +911,14 @@ class ThinkingProxy {
      Receives response from CLIProxyAPI
      Starts the streaming loop for response data
      */
-    private func receiveResponse(from targetConnection: NWConnection, originalConnection: NWConnection) {
-        // Start the streaming loop
-        streamNextChunk(from: targetConnection, to: originalConnection)
+    private func receiveResponse(from targetConnection: NWConnection, originalConnection: NWConnection, requestPath: String) {
+        streamNextChunk(from: targetConnection, to: originalConnection, relay: HTTPResponseRelay(requestPath: requestPath))
     }
     
     /**
      Streams response chunks iteratively (uses async scheduling instead of recursion to avoid stack buildup)
      */
-    private func streamNextChunk(from targetConnection: NWConnection, to originalConnection: NWConnection) {
+    private func streamNextChunk(from targetConnection: NWConnection, to originalConnection: NWConnection, relay: HTTPResponseRelay) {
         targetConnection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
             guard let self = self else { return }
             
@@ -884,31 +930,75 @@ class ThinkingProxy {
             }
             
             if let data = data, !data.isEmpty {
-                // Forward response chunk to original client
-                originalConnection.send(content: data, completion: .contentProcessed({ sendError in
-                    if let sendError = sendError {
-                        NSLog("[ThinkingProxy] Send response error: \(sendError)")
-                    }
-                    
-                    if isComplete {
-                        targetConnection.cancel()
-                        // Always close client connection - no keep-alive/pipelining support
-                        originalConnection.send(content: nil, isComplete: true, completion: .contentProcessed({ _ in
-                            originalConnection.cancel()
-                        }))
-                    } else {
-                        // Schedule next iteration of the streaming loop
-                        self.streamNextChunk(from: targetConnection, to: originalConnection)
-                    }
-                }))
+                self.forwardRelayedResponseChunks(
+                    relay.process(data, isComplete: isComplete),
+                    targetConnection: targetConnection,
+                    originalConnection: originalConnection,
+                    isComplete: isComplete,
+                    relay: relay
+                )
             } else if isComplete {
+                self.forwardRelayedResponseChunks(
+                    relay.process(Data(), isComplete: true),
+                    targetConnection: targetConnection,
+                    originalConnection: originalConnection,
+                    isComplete: true,
+                    relay: relay
+                )
+            }
+        }
+    }
+
+    private func forwardRelayedResponseChunks(
+        _ chunks: [Data],
+        targetConnection: NWConnection,
+        originalConnection: NWConnection,
+        isComplete: Bool,
+        relay: HTTPResponseRelay
+    ) {
+        sendResponseChunks(chunks, to: originalConnection) { [weak self] sendError in
+            guard let self = self else { return }
+
+            if let sendError {
+                NSLog("[ThinkingProxy] Send response error: \(sendError)")
                 targetConnection.cancel()
-                // Always close client connection - no keep-alive/pipelining support
+                originalConnection.cancel()
+                return
+            }
+
+            if isComplete {
+                targetConnection.cancel()
                 originalConnection.send(content: nil, isComplete: true, completion: .contentProcessed({ _ in
                     originalConnection.cancel()
                 }))
+            } else {
+                self.streamNextChunk(from: targetConnection, to: originalConnection, relay: relay)
             }
         }
+    }
+
+    private func sendResponseChunks(_ chunks: [Data], to connection: NWConnection, completion: @escaping (NWError?) -> Void) {
+        guard !chunks.isEmpty else {
+            completion(nil)
+            return
+        }
+
+        func sendChunk(at index: Int) {
+            guard index < chunks.count else {
+                completion(nil)
+                return
+            }
+
+            connection.send(content: chunks[index], completion: .contentProcessed({ error in
+                if let error {
+                    completion(error)
+                    return
+                }
+                sendChunk(at: index + 1)
+            }))
+        }
+
+        sendChunk(at: 0)
     }
     
     /**

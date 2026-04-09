@@ -78,6 +78,12 @@ class ServerManager: ObservableObject {
             onVercelConfigChanged?()
         }
     }
+    @Published var forceFastServiceTier: Bool = false {
+        didSet {
+            UserDefaults.standard.set(forceFastServiceTier, forKey: "forceFastServiceTier")
+            onVercelConfigChanged?()
+        }
+    }
     var onVercelConfigChanged: (() -> Void)?
 
     /// Helper class to capture output text across closures
@@ -102,12 +108,14 @@ class ServerManager: ObservableObject {
         static let readinessCheckDelay: TimeInterval = 1.0
         static let gracefulTerminationTimeout: TimeInterval = 2.0
         static let terminationPollInterval: TimeInterval = 0.05
-        /// Delay before sending newline to accept Gemini's default project choice
-        static let geminiDefaultProjectAcceptDelay: TimeInterval = 3.0
         /// Delay before sending newline to keep Codex login waiting for browser callback
         static let codexCallbackKeepaliveDelay: TimeInterval = 12.0
         /// Delay before sending Qwen email after OAuth completion (conservative to allow for network/user interaction)
         static let qwenEmailSubmissionDelay: TimeInterval = 10.0
+    }
+
+    private enum GeminiAuthConstants {
+        static let googleOneProjectID = "GOOGLE_ONE"
     }
     
     private enum CustomProviderConstants {
@@ -131,6 +139,23 @@ class ServerManager: ObservableObject {
     
     var onLogUpdate: (([String]) -> Void)?
 
+    static func authArguments(for command: AuthCommand, configPath: String) -> [String] {
+        switch command {
+        case .claudeLogin:
+            return ["--config", configPath, "-claude-login"]
+        case .codexLogin:
+            return ["--config", configPath, "-codex-login"]
+        case .copilotLogin:
+            return ["--config", configPath, "-github-copilot-login"]
+        case .geminiLogin:
+            return ["--config", configPath, "--project_id", GeminiAuthConstants.googleOneProjectID, "-login"]
+        case .qwenLogin:
+            return ["--config", configPath, "-qwen-login"]
+        case .antigravityLogin:
+            return ["--config", configPath, "-antigravity-login"]
+        }
+    }
+
     init() {
         logBuffer = RingBuffer(capacity: maxLogLines)
         if let saved = UserDefaults.standard.dictionary(forKey: "enabledProviders") as? [String: Bool] {
@@ -138,6 +163,7 @@ class ServerManager: ObservableObject {
         }
         vercelGatewayEnabled = UserDefaults.standard.bool(forKey: "vercelGatewayEnabled")
         vercelApiKey = UserDefaults.standard.string(forKey: "vercelApiKey") ?? ""
+        forceFastServiceTier = UserDefaults.standard.bool(forKey: "forceFastServiceTier")
         reloadCustomProviders()
         markObservedConfigInputsCurrent()
     }
@@ -369,21 +395,13 @@ class ServerManager: ObservableObject {
         }
         
         var qwenEmail: String?
+        authProcess.arguments = Self.authArguments(for: command, configPath: configPath)
         
         switch command {
-        case .claudeLogin:
-            authProcess.arguments = ["--config", configPath, "-claude-login"]
-        case .codexLogin:
-            authProcess.arguments = ["--config", configPath, "-codex-login"]
-        case .copilotLogin:
-            authProcess.arguments = ["--config", configPath, "-github-copilot-login"]
-        case .geminiLogin:
-            authProcess.arguments = ["--config", configPath, "-login"]
         case .qwenLogin(let email):
-            authProcess.arguments = ["--config", configPath, "-qwen-login"]
             qwenEmail = email
-        case .antigravityLogin:
-            authProcess.arguments = ["--config", configPath, "-antigravity-login"]
+        default:
+            break
         }
         
         // Create pipes for output
@@ -407,19 +425,6 @@ class ServerManager: ObservableObject {
             }
         }
         
-        // For Gemini login, automatically send newline to accept default project
-        if case .geminiLogin = command {
-            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + Timing.geminiDefaultProjectAcceptDelay) {
-                // Send newline after 3 seconds to accept default project choice
-                if authProcess.isRunning {
-                    if let data = "\n".data(using: .utf8) {
-                        try? inputPipe.fileHandleForWriting.write(contentsOf: data)
-                        NSLog("[Auth] Sent newline to accept default project")
-                    }
-                }
-            }
-        }
-
         // For Codex login, avoid blocking on the manual callback prompt after configured delay
         if case .codexLogin = command {
             DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + Timing.codexCallbackKeepaliveDelay) {

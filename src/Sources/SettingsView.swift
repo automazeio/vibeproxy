@@ -109,6 +109,23 @@ struct VercelGatewayControls: View {
     }
 }
 
+struct RequestDefaultsControls: View {
+    @ObservedObject var serverManager: ServerManager
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle(isOn: $serverManager.forceFastServiceTier) {
+                Text("Force fast tier for GPT requests")
+                    .font(.caption)
+            }
+            .toggleStyle(.checkbox)
+            .help("When enabled, VibeProxy injects Codex fast-mode service_tier into supported GPT and o-series Responses API requests when the client did not already specify a service tier.")
+        }
+        .padding(.leading, 28)
+        .padding(.top, 4)
+    }
+}
+
 /// A row displaying a service with its connected accounts and add button
 struct ServiceRow<ExtraContent: View>: View {
     let serviceType: ServiceType
@@ -631,14 +648,16 @@ struct SettingsView: View {
                         onToggleDisabled: { account in toggleAccountDisabled(account) },
                         onToggleEnabled: { enabled in serverManager.setProviderEnabled("codex", enabled: enabled) },
                         onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
-                    ) { EmptyView() }
+                    ) {
+                        RequestDefaultsControls(serverManager: serverManager)
+                    }
 
                     ServiceRow(
                         serviceType: .gemini,
                         iconName: "icon-gemini.png",
                         accounts: authManager.accounts(for: .gemini),
                         isAuthenticating: authenticatingService == .gemini,
-                        helpText: "⚠️ Note: If you're an existing Gemini user with multiple projects, authentication will use your default project. Set your desired project as default in Google AI Studio before connecting.",
+                        helpText: "Personal Gemini accounts use Google One auto-discovery during sign-in, so VibeProxy does not force a default Google Cloud project.",
                         isEnabled: serverManager.isProviderEnabled("gemini"),
                         isToggleLocked: serverManager.isProviderToggleLocked("gemini"),
                         toggleHelpText: serverManager.providerConfigLockReason("gemini"),
@@ -977,7 +996,7 @@ struct SettingsView: View {
         case .copilot:
             return "🌐 GitHub Copilot authentication started!\n\nPlease visit github.com/login/device and enter the code shown.\n\nThe app will automatically detect your credentials."
         case .gemini:
-            return "🌐 Browser opened for Gemini authentication.\n\nPlease complete the login in your browser.\n\n⚠️ Note: If you have multiple projects, the default project will be used."
+            return "🌐 Browser opened for Gemini authentication.\n\nPlease complete the login in your browser.\n\nVibeProxy uses the Google One personal-account flow so it won’t auto-select a default Google Cloud project during sign-in."
         case .qwen:
             return "🌐 Browser opened for Qwen authentication.\n\nPlease complete the login in your browser."
         case .antigravity:
