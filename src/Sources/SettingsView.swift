@@ -692,7 +692,7 @@ struct SettingsView: View {
                         iconName: "icon-zai.png",
                         accounts: authManager.accounts(for: .zai),
                         isAuthenticating: authenticatingService == .zai,
-                        helpText: "Z.AI GLM provides access to GLM-4.7 and other models via API key. Get your key at https://z.ai/manage-apikey/apikey-list",
+                        helpText: "Z.AI GLM provides access to GLM-5.1, GLM-5, GLM-4.7, and other models via API key. Get your key at https://z.ai/manage-apikey/apikey-list",
                         isEnabled: serverManager.isProviderEnabled("zai"),
                         isToggleLocked: serverManager.isProviderToggleLocked("zai"),
                         toggleHelpText: serverManager.providerConfigLockReason("zai"),
@@ -983,7 +983,7 @@ struct SettingsView: View {
         case .antigravity:
             return "🌐 Browser opened for Antigravity authentication.\n\nPlease complete the login in your browser."
         case .zai:
-            return "✓ Z.AI API key added successfully.\n\nYou can now use GLM models through the proxy."
+            return "✓ Z.AI API key added successfully.\n\nYou can now use GLM models (including GLM-5.1, GLM-5, GLM-5v-turbo) through the proxy."
         }
     }
     
