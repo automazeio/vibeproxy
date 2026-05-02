@@ -17,7 +17,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4@11bd71901bbe5b1630ceea73d27597364c9af683
       
       - name: Setup environment
         uses: ./.github/actions/setup
@@ -33,7 +33,7 @@ jobs:
     strategy:
       fail-fast: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4@11bd71901bbe5b1630ceea73d27597364c9af683
       
       - name: Setup environment
         uses: ./.github/actions/setup
@@ -51,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [check, test]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4@11bd71901bbe5b1630ceea73d27597364c9af683
       
       - name: Setup environment
         uses: ./.github/actions/setup
@@ -62,5 +62,5 @@ jobs:
   phenotype-validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: KooshaPari/phenotypeActions/.github/workflows/validate-governance.yml@main
