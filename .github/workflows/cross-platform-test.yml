@@ -44,7 +44,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
     
     - name: Install .NET SDK
-      uses: actions/setup-dotnet@v3
+      uses: actions/setup-dotnet@v3@55ec9447dda3d1cf6bd587150f3262f30ee10815
       with:
         dotnet-version: '8.0.x'
     
