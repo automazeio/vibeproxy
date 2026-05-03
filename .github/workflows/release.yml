@@ -51,7 +51,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 0
 
@@ -221,7 +221,7 @@ jobs:
           echo "Sparkle signature generated for ${{ matrix.arch }}"
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: vibeproxy-${{ matrix.arch }}
           path: |
@@ -237,7 +237,7 @@ jobs:
           echo "${{ steps.sparkle_sign.outputs.length }}" > sparkle_length_${{ matrix.arch }}.txt
       
       - name: Upload Sparkle signature
-        uses: actions/upload-artifact@v4@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: sparkle-signature-${{ matrix.arch }}
           path: |
@@ -253,7 +253,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 0
 
@@ -264,7 +264,7 @@ jobs:
           echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4@d7aade707a79a3bc4130f2605987cbbf2ecfac6c
+        uses: actions/download-artifact@d7aade707a79a3bc4130f2605987cbbf2ecfac6c
         with:
           path: artifacts
 
@@ -276,7 +276,7 @@ jobs:
           ls -la release/
 
       - name: Download Sparkle signatures
-        uses: actions/download-artifact@v4@d7aade707a79a3bc4130f2605987cbbf2ecfac6c
+        uses: actions/download-artifact@d7aade707a79a3bc4130f2605987cbbf2ecfac6c
         with:
           pattern: sparkle-signature-*
           path: sparkle

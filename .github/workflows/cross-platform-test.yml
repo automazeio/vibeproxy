@@ -18,7 +18,7 @@ jobs:
     runs-on: macos-latest
     
     steps:
-    - uses: actions/checkout@v4@11bd71901bbe5b1630ceea73d27597364c9af683
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
     
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
@@ -42,13 +42,13 @@ jobs:
     runs-on: windows-latest
     
     steps:
-    - uses: actions/checkout@v4@11bd71901bbe5b1630ceea73d27597364c9af683
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
     
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
     
     - name: Install .NET SDK
-      uses: actions/setup-dotnet@v3@55ec9447dda3d1cf6bd587150f3262f30ee10815
+      uses: actions/setup-dotnet@55ec9447dda3d1cf6bd587150f3262f30ee10815
       with:
         dotnet-version: '8.0.x'
     
@@ -71,7 +71,7 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - uses: actions/checkout@v4@11bd71901bbe5b1630ceea73d27597364c9af683
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
     
     - name: Install system dependencies
       run: |
@@ -108,7 +108,7 @@ jobs:
     needs: [test-macos, test-windows, test-linux]
     
     steps:
-    - uses: actions/checkout@v4@11bd71901bbe5b1630ceea73d27597364c9af683
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
     
     - name: Run smoke tests
       run: |
