@@ -32,7 +32,7 @@ jobs:
           libssl-dev
     
     - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
+      uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
       with:
         components: rustfmt, clippy
     
@@ -96,7 +96,7 @@ jobs:
           libssl-dev
     
     - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
+      uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
     
     - name: Build and test
       run: |

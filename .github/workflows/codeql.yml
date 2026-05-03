@@ -20,9 +20,9 @@ jobs:
         language: ["csharp"]
     steps:
       - uses: actions/checkout@v4@11bd71901bbe5b1630ceea73d27597364c9af683
-      - uses: github/codeql-action/init@v3
+      - uses: github/codeql-action/init@0daab03d71ff584ef619d027a3fd9146679c5d84
         with:
           languages: ${{ matrix.language }}
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/analyze@0daab03d71ff584ef619d027a3fd9146679c5d84
         with:
           category: "/language:${{ matrix.language }}"

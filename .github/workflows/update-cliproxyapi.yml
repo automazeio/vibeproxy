@@ -188,7 +188,7 @@ jobs:
 
       - name: Create Pull Request
         id: create-pr
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@c5a7806660adbe173f04e3e038b0ccdcd758773c
         with:
           token: ${{ secrets.AUTO_UPDATE_TOKEN }}
           commit-message: Bump CLIProxyAPIPlus to ${{ steps.get-latest-release.outputs.version }}
