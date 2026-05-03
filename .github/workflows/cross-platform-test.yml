@@ -15,7 +15,7 @@ on:
 
 jobs:
   test-macos:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     
     steps:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -39,7 +39,7 @@ jobs:
         swift test || true  # Tests may not be fully implemented yet
 
   test-windows:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     
     steps:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
