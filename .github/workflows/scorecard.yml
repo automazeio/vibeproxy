@@ -1,4 +1,8 @@
 name: OpenSSF Scorecard
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   branch_protection_rule:
   schedule:
