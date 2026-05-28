@@ -1,0 +1,73 @@
+<Window x:Class="VibeProxy.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="VibeProxy Settings"
+        Width="600"
+        Height="500">
+    <Grid Padding="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <TextBlock Grid.Row="0" 
+                   Text="Settings" 
+                   FontSize="24" 
+                   FontWeight="SemiBold"
+                   Margin="0,0,0,16"/>
+
+        <!-- Content -->
+        <ScrollViewer Grid.Row="1">
+            <StackPanel Spacing="16">
+                <!-- Backend Settings -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        CornerRadius="8" Padding="16">
+                    <StackPanel Spacing="12">
+                        <TextBlock Text="Backend Configuration" FontWeight="SemiBold"/>
+                        <TextBox x:Name="BackendUrl" Header="URL" PlaceholderText="http://localhost"/>
+                        <NumberBox x:Name="BackendPort" Header="Port" Value="8317" Minimum="1" Maximum="65535"/>
+                        <PasswordBox x:Name="BackendApiKey" Header="API Key (optional)" PlaceholderText="Leave empty if not required"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- SLM Settings -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        CornerRadius="8" Padding="16">
+                    <StackPanel Spacing="12">
+                        <TextBlock Text="SLM Configuration" FontWeight="SemiBold"/>
+                        <TextBox x:Name="SLMUrl" Header="URL" PlaceholderText="http://localhost"/>
+                        <NumberBox x:Name="SLMPort" Header="Port" Value="8318" Minimum="1" Maximum="65535"/>
+                        <ComboBox x:Name="SLMBackend" Header="Backend">
+                            <ComboBoxItem Content="vLLM" IsSelected="True"/>
+                            <ComboBoxItem Content="MLX"/>
+                            <ComboBoxItem Content="Ollama"/>
+                        </ComboBox>
+                    </StackPanel>
+                </Border>
+
+                <!-- Tunnel Settings -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        CornerRadius="8" Padding="16">
+                    <StackPanel Spacing="12">
+                        <TextBlock Text="Cloudflare Tunnel" FontWeight="SemiBold"/>
+                        <ToggleSwitch x:Name="TunnelEnabled" Header="Enable Tunnel"/>
+                        <TextBox x:Name="TunnelId" Header="Tunnel ID" PlaceholderText="Enter tunnel ID" IsEnabled="{x:Bind TunnelEnabled.IsOn, Mode=OneWay}"/>
+                        <TextBox x:Name="TunnelCredentials" Header="Credentials Path" PlaceholderText="Path to credentials file" IsEnabled="{x:Bind TunnelEnabled.IsOn, Mode=OneWay}"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Footer -->
+        <StackPanel Grid.Row="2" 
+                    Orientation="Horizontal" 
+                    HorizontalAlignment="Right" 
+                    Spacing="8"
+                    Margin="0,16,0,0">
+            <Button Content="Cancel" Click="Cancel_Click"/>
+            <Button Content="Save" Click="Save_Click" Style="{ThemeResource AccentButtonStyle}"/>
+        </StackPanel>
+    </Grid>
+</Window>

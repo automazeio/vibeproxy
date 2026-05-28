@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package vibeproxy;
+
+option go_package = "github.com/kooshapari/vibeproxy/proto";
+
+// Backend configuration
+message BackendConfig {
+  string url = 1;
+  uint32 port = 2;
+  optional string api_key = 3;
+}
+
+// SLM server configuration
+message SLMConfig {
+  string url = 1;
+  uint32 port = 2;
+  string backend = 3; // "vllm" or "mlx"
+}
+
+// Cloudflare tunnel configuration
+message TunnelConfig {
+  bool enabled = 1;
+  optional string tunnel_id = 2;
+  optional string credentials_path = 3;
+}
+
+// Main application configuration
+message AppConfig {
+  BackendConfig backend = 1;
+  SLMConfig slm = 2;
+  TunnelConfig tunnel = 3;
+}

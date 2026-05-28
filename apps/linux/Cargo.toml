@@ -1,0 +1,49 @@
+[package]
+name = "vibeproxy-linux"
+version = "0.1.0"
+edition = "2021"
+authors = ["VibeProxy Team"]
+description = "VibeProxy Linux desktop application"
+license = "MIT"
+
+[[bin]]
+name = "vibeproxy"
+path = "src/main.rs"
+
+[dependencies]
+# GTK4 for UI
+gtk = { version = "0.8", package = "gtk4", features = ["v4_10"] }
+adw = { version = "1", package = "libadwaita" }
+
+# System tray
+libappindicator = "0.7"
+
+# Keyring integration
+secret-service = "3.0"
+
+# Async runtime
+tokio = { version = "1.0", features = ["full", "rt-multi-thread"] }
+
+# Shared core library
+vibeproxy-core = { path = "../../shared/core", features = ["linux"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Configuration
+directories = "5.0"
+
+# UI helpers
+glib = { version = "0.20", features = ["v2_74"] }
+
+[features]
+default = []

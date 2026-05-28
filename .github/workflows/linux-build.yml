@@ -1,0 +1,111 @@
+name: Linux Build and Test
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'apps/linux/**'
+      - 'shared/core/**'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'apps/linux/**'
+      - 'shared/core/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          pkg-config \
+          libgtk-4-dev \
+          libadwaita-1-dev \
+          libappindicator3-dev \
+          libsecret-1-dev \
+          libssl-dev
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+    
+    - name: Cache cargo registry
+      uses: actions/cache@6f8efc29b200d32929f49075959781ed54ec270c
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
+    
+    - name: Build shared core
+      run: |
+        cd shared/core
+        cargo build --release --features linux
+    
+    - name: Build Linux app
+      run: |
+        cd apps/linux
+        cargo build --release
+    
+    - name: Run tests
+      run: |
+        cd apps/linux
+        cargo test --release
+    
+    - name: Check formatting
+      run: |
+        cd apps/linux
+        cargo fmt -- --check
+    
+    - name: Clippy check
+      run: |
+        cd apps/linux
+        cargo clippy --release -- -D warnings
+
+  test-distributions:
+    strategy:
+      matrix:
+        distro: [ubuntu-20.04, ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.distro }}
+    
+    steps:
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          pkg-config \
+          libgtk-4-dev \
+          libadwaita-1-dev \
+          libappindicator3-dev \
+          libsecret-1-dev \
+          libssl-dev
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+    
+    - name: Build and test
+      run: |
+        cd shared/core
+        cargo build --release --features linux
+        cd ../../apps/linux
+        cargo build --release
+        cargo test --release

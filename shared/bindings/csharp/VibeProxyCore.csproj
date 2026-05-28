@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>VibeProxyCore</RootNamespace>
+    <AssemblyName>VibeProxyCore</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Text.Json" Version="8.0.0" />
+  </ItemGroup>
+
+  <!-- Copy native library to output -->
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'win-x64'">
+    <None Include="..\..\core\target\x86_64-pc-windows-msvc\release\vibeproxy_core.dll"
+          CopyToOutputDirectory="PreserveNewest"
+          Condition="Exists('..\..\core\target\x86_64-pc-windows-msvc\release\vibeproxy_core.dll')" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'win-arm64'">
+    <None Include="..\..\core\target\aarch64-pc-windows-msvc\release\vibeproxy_core.dll"
+          CopyToOutputDirectory="PreserveNewest"
+          Condition="Exists('..\..\core\target\aarch64-pc-windows-msvc\release\vibeproxy_core.dll')" />
+  </ItemGroup>
+
+</Project>
