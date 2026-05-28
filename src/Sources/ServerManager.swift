@@ -1,7 +1,13 @@
 import Foundation
 import Combine
 import AppKit
+import Yams
 
+/// A fixed-capacity circular buffer that overwrites the oldest element when full.
+///
+/// When `count` reaches capacity, appending a new element overwrites the element at `head`,
+/// and both `head` and `tail` advance. This ensures the buffer always contains the most
+/// recent `capacity` elements, with older elements being discarded.
 private struct RingBuffer<Element> {
     private var storage: [Element?]
     private var head = 0
@@ -46,8 +52,12 @@ private struct RingBuffer<Element> {
 
 class ServerManager: ObservableObject {
     private var process: Process?
+    private var activeAuthProcess: Process?
     @Published private(set) var isRunning = false
     private(set) var port = 8317
+    @Published private(set) var customProviders: [CustomProviderDefinition] = []
+    @Published private(set) var customProviderCredentials: [String: [CustomProviderCredential]] = [:]
+    @Published private(set) var configErrorMessage: String?
 
     /// Provider enabled states - when disabled, models are excluded via oauth-excluded-models
     @Published var enabledProviders: [String: Bool] = [:] {
@@ -78,24 +88,49 @@ class ServerManager: ObservableObject {
     private var logBuffer: RingBuffer<String>
     private let maxLogLines = 1000
     private let processQueue = DispatchQueue(label: "io.automaze.vibeproxy.server-process", qos: .userInitiated)
+    private let credentialMutationQueue = DispatchQueue(label: "io.automaze.vibeproxy.credential-mutations", qos: .userInitiated)
+    private let configInputStateQueue = DispatchQueue(label: "io.automaze.vibeproxy.config-input-state", qos: .userInitiated)
+    private let configResolutionQueue = DispatchQueue(label: "io.automaze.vibeproxy.config-resolution", qos: .userInitiated)
+    private lazy var zaiAPIKeyStore = ZAIAPIKeyStore(directoryURL: authDirectoryURL())
+    private lazy var customProviderCredentialStore = CustomProviderCredentialStore(directoryURL: authDirectoryURL())
+    private var activeConfigPath = ""
+    private var isRestartingForConfigUpdate = false
+    private var isResolvingConfigUpdate = false
+    private var hasPendingConfigUpdate = false
+    private var observedConfigInputsFingerprint = ""
     
     private enum Timing {
         static let readinessCheckDelay: TimeInterval = 1.0
         static let gracefulTerminationTimeout: TimeInterval = 2.0
         static let terminationPollInterval: TimeInterval = 0.05
+        /// Delay before sending newline to accept Gemini's default project choice
+        static let geminiDefaultProjectAcceptDelay: TimeInterval = 3.0
+        /// Delay before sending newline to keep Codex login waiting for browser callback
+        static let codexCallbackKeepaliveDelay: TimeInterval = 12.0
+        /// Delay before sending Qwen email after OAuth completion (conservative to allow for network/user interaction)
+        static let qwenEmailSubmissionDelay: TimeInterval = 10.0
+    }
+    
+    private enum CustomProviderConstants {
+        static let userConfigFilename = "config.yaml"
+        static let mergedConfigFilename = "merged-config.yaml"
+    }
+
+    private struct LoadedBaseConfig {
+        let root: [String: Any]
+        let isUserConfig: Bool
+    }
+
+    private struct ConfigResolutionFailure: Error {
+        let message: String
+    }
+
+    private struct CustomProviderCredentialKey: Hashable {
+        let providerID: String
+        let apiKey: String
     }
     
     var onLogUpdate: (([String]) -> Void)?
-
-    /// OAuth provider keys used in config.yaml oauth-excluded-models
-    static let oauthProviderKeys: [String: String] = [
-        "claude": "claude",
-        "codex": "codex",
-        "gemini": "gemini-cli",
-        "github-copilot": "github-copilot",
-        "antigravity": "antigravity",
-        "qwen": "qwen"
-    ]
 
     init() {
         logBuffer = RingBuffer(capacity: maxLogLines)
@@ -104,25 +139,73 @@ class ServerManager: ObservableObject {
         }
         vercelGatewayEnabled = UserDefaults.standard.bool(forKey: "vercelGatewayEnabled")
         vercelApiKey = UserDefaults.standard.string(forKey: "vercelApiKey") ?? ""
+        reloadCustomProviders()
+        markObservedConfigInputsCurrent()
     }
 
     /// Check if a provider is enabled (defaults to true if not set)
     func isProviderEnabled(_ providerKey: String) -> Bool {
-        return enabledProviders[providerKey] ?? true
+        isProviderEnabled(providerKey, baseConfigRoot: nil, enabledProviderStates: enabledProviders)
+    }
+
+    private func isProviderEnabled(_ providerKey: String, baseConfigRoot: [String: Any]?) -> Bool {
+        isProviderEnabled(providerKey, baseConfigRoot: baseConfigRoot, enabledProviderStates: enabledProviders)
+    }
+
+    private func isProviderEnabled(
+        _ providerKey: String,
+        baseConfigRoot: [String: Any]?,
+        enabledProviderStates: [String: Bool]
+    ) -> Bool {
+        let userEnabled = enabledProviderStates[providerKey] ?? true
+        guard userEnabled else {
+            return false
+        }
+        return providerConfigLockReason(providerKey, baseConfigRoot: baseConfigRoot) == nil
+    }
+
+    func providerConfigLockReason(_ providerKey: String) -> String? {
+        providerConfigLockReason(providerKey, baseConfigRoot: nil)
+    }
+
+    private func providerConfigLockReason(_ providerKey: String, baseConfigRoot: [String: Any]?) -> String? {
+        guard let oauthProviderKey = ProviderCatalog.oauthProviderKeys[providerKey] else {
+            return nil
+        }
+        let root: [String: Any]
+        if let baseConfigRoot {
+            root = baseConfigRoot
+        } else {
+            guard case .success(let baseConfig) = loadBaseConfigRoot() else {
+                return nil
+            }
+            root = baseConfig.root
+        }
+        guard ConfigComposer.isOAuthProviderWildcardExcluded(oauthProviderKey, in: root) else {
+            return nil
+        }
+        return "Disabled in config via oauth-excluded-models. Remove the '*' exclusion for \(oauthProviderKey) to enable it here."
+    }
+
+    func isProviderToggleLocked(_ providerKey: String) -> Bool {
+        providerConfigLockReason(providerKey) != nil
     }
 
     /// Set provider enabled state and regenerate config (hot reload - no restart needed)
     func setProviderEnabled(_ providerKey: String, enabled: Bool) {
         enabledProviders[providerKey] = enabled
-        addLog(enabled ? "✓ Enabled provider: \(providerKey)" : "⚠️ Disabled provider: \(providerKey)")
-
-        // Regenerate config - CLIProxyAPI hot reloads config.yaml automatically
-        _ = getConfigPath()
-        addLog("Config updated (hot reload)")
+        if enabled, let lockReason = providerConfigLockReason(providerKey) {
+            addLog("⚠️ \(providerKey) remains disabled: \(lockReason)")
+        } else {
+            addLog(enabled ? "✓ Enabled provider: \(providerKey)" : "⚠️ Disabled provider: \(providerKey)")
+        }
+        reloadCustomProviders()
+        requestConfigUpdate()
     }
     
     deinit {
         // Ensure cleanup on deallocation
+        terminateActiveAuthProcessIfNeeded(reason: "deinit cleanup")
         stop()
         killOrphanedProcesses()
     }
@@ -153,7 +236,7 @@ class ServerManager: ObservableObject {
         // Use config path (merged with Z.AI if keys exist)
         let configPath = getConfigPath()
         guard !configPath.isEmpty && FileManager.default.fileExists(atPath: configPath) else {
-            addLog("❌ Error: config.yaml not found")
+            addLog("❌ Error: \(configErrorMessage ?? "Could not resolve active config path")")
             completion(false)
             return
         }
@@ -191,6 +274,7 @@ class ServerManager: ObservableObject {
             
             DispatchQueue.main.async {
                 self?.isRunning = false
+                self?.activeConfigPath = ""
                 self?.addLog("Server stopped with code: \(process.terminationStatus)")
                 NotificationCenter.default.post(name: .serverStatusChanged, object: nil)
             }
@@ -200,6 +284,7 @@ class ServerManager: ObservableObject {
             try process?.run()
             DispatchQueue.main.async {
                 self.isRunning = true
+                self.activeConfigPath = configPath
             }
             addLog("✓ Server started on port \(port)")
             
@@ -255,6 +340,7 @@ class ServerManager: ObservableObject {
             DispatchQueue.main.async {
                 self.process = nil
                 self.isRunning = false
+                self.activeConfigPath = ""
                 self.addLog("✓ Server stopped")
                 NotificationCenter.default.post(name: .serverStatusChanged, object: nil)
                 completion?()
@@ -263,6 +349,9 @@ class ServerManager: ObservableObject {
     }
     
     func runAuthCommand(_ command: AuthCommand, completion: @escaping (Bool, String) -> Void) {
+        terminateActiveAuthProcessIfNeeded(reason: "starting a new auth attempt")
+        cleanupStaleAuthProcesses()
+
         // Use bundled binary from app bundle
         guard let resourcePath = Bundle.main.resourcePath else {
             completion(false, "Could not find resource path")
@@ -278,8 +367,11 @@ class ServerManager: ObservableObject {
         let authProcess = Process()
         authProcess.executableURL = URL(fileURLWithPath: bundledPath)
         
-        // Get the config path
-        let configPath = (resourcePath as NSString).appendingPathComponent("config.yaml")
+        let configPath = getConfigPath()
+        guard !configPath.isEmpty else {
+            completion(false, configErrorMessage ?? "Could not resolve config path")
+            return
+        }
         
         var qwenEmail: String?
         
@@ -292,6 +384,8 @@ class ServerManager: ObservableObject {
             authProcess.arguments = ["--config", configPath, "-github-copilot-login"]
         case .geminiLogin:
             authProcess.arguments = ["--config", configPath, "-login"]
+        case .kimiLogin:
+            authProcess.arguments = ["--config", configPath, "-kimi-login"]
         case .qwenLogin(let email):
             authProcess.arguments = ["--config", configPath, "-qwen-login"]
             qwenEmail = email
@@ -322,7 +416,7 @@ class ServerManager: ObservableObject {
         
         // For Gemini login, automatically send newline to accept default project
         if case .geminiLogin = command {
-            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 3.0) {
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + Timing.geminiDefaultProjectAcceptDelay) {
                 // Send newline after 3 seconds to accept default project choice
                 if authProcess.isRunning {
                     if let data = "\n".data(using: .utf8) {
@@ -333,9 +427,9 @@ class ServerManager: ObservableObject {
             }
         }
 
-        // For Codex login, avoid blocking on the manual callback prompt after ~15s.
+        // For Codex login, avoid blocking on the manual callback prompt after configured delay
         if case .codexLogin = command {
-            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 12.0) {
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + Timing.codexCallbackKeepaliveDelay) {
                 // Send newline before the prompt to keep waiting for browser callback.
                 if authProcess.isRunning {
                     if let data = "\n".data(using: .utf8) {
@@ -347,12 +441,12 @@ class ServerManager: ObservableObject {
         }
         
         // For Qwen login, automatically send email after OAuth completes
-        // NOTE: 10 second delay chosen to ensure OAuth browser flow completes before submitting email.
+        // NOTE: Delay chosen to ensure OAuth browser flow completes before submitting email.
         // This is a conservative estimate - OAuth typically completes in 5-8 seconds, but network
         // conditions and user interaction time can vary. Future improvement: monitor authProcess
         // output or termination handler to detect OAuth completion signal and submit immediately.
         if let email = qwenEmail {
-            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 10.0) {
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + Timing.qwenEmailSubmissionDelay) {
                 // Send email after OAuth completion
                 if authProcess.isRunning {
                     if let data = "\(email)\n".data(using: .utf8) {
@@ -365,26 +459,25 @@ class ServerManager: ObservableObject {
         
         // Set environment to inherit from parent
         authProcess.environment = ProcessInfo.processInfo.environment
+
+        authProcess.terminationHandler = { [weak self] process in
+            let exitCode = process.terminationStatus
+            NSLog("[Auth] Process terminated with exit code: %d", exitCode)
+            self?.clearActiveAuthProcess(process)
+
+            if exitCode == 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    NotificationCenter.default.post(name: .authDirectoryChanged, object: nil)
+                }
+            }
+        }
         
         do {
             NSLog("[Auth] Starting process: %@ with args: %@", bundledPath, authProcess.arguments?.joined(separator: " ") ?? "none")
+            activeAuthProcess = authProcess
             try authProcess.run()
             addLog("✓ Authentication process started (PID: \(authProcess.processIdentifier)) - browser should open shortly")
             NSLog("[Auth] Process started with PID: %d", authProcess.processIdentifier)
-            
-            // Set up termination handler to detect when auth completes
-            authProcess.terminationHandler = { process in
-                let exitCode = process.terminationStatus
-                NSLog("[Auth] Process terminated with exit code: %d", exitCode)
-                
-                if exitCode == 0 {
-                    // Authentication completed successfully
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        // Give file system a moment to write the credential file
-                        NotificationCenter.default.post(name: .authDirectoryChanged, object: nil)
-                    }
-                }
-            }
             
             // Wait briefly to check if process crashes immediately or to capture output
             let waitTime: TimeInterval = (command == .copilotLogin) ? 2.0 : 1.0
@@ -429,12 +522,12 @@ class ServerManager: ObservableObject {
                     completion(true, "🌐 Browser opened for authentication.\n\nPlease complete the login in your browser.\n\nThe app will automatically detect when you're authenticated.")
                 } else {
                     // Process died quickly - check for error
-                    let outputData = try? outputPipe.fileHandleForReading.readDataToEndOfFile()
-                    let errorData = try? errorPipe.fileHandleForReading.readDataToEndOfFile()
+                    let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+                    let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
                     
-                    var output = String(data: outputData ?? Data(), encoding: .utf8) ?? ""
+                    var output = String(data: outputData, encoding: .utf8) ?? ""
                     if output.isEmpty { output = capture.text }
-                    let error = String(data: errorData ?? Data(), encoding: .utf8) ?? ""
+                    let error = String(data: errorData, encoding: .utf8) ?? ""
                     
                     NSLog("[Auth] Process died quickly - output: %@", output.isEmpty ? "(empty)" : String(output.prefix(200)))
                     
@@ -451,8 +544,81 @@ class ServerManager: ObservableObject {
                 }
             }
         } catch {
+            clearActiveAuthProcess(authProcess)
             NSLog("[Auth] Failed to start: %@", error.localizedDescription)
             completion(false, "Failed to start auth process: \(error.localizedDescription)")
+        }
+    }
+
+    private func terminateActiveAuthProcessIfNeeded(reason: String) {
+        guard let authProcess = activeAuthProcess else {
+            return
+        }
+
+        if authProcess.isRunning {
+            addLog("⚠️ Terminating previous auth process (\(authProcess.processIdentifier)) before retry: \(reason)")
+            authProcess.terminate()
+
+            let deadline = Date().addingTimeInterval(Timing.gracefulTerminationTimeout)
+            while authProcess.isRunning && Date() < deadline {
+                Thread.sleep(forTimeInterval: Timing.terminationPollInterval)
+            }
+
+            if authProcess.isRunning {
+                kill(authProcess.processIdentifier, SIGKILL)
+            }
+        }
+
+        activeAuthProcess = nil
+    }
+
+    private func clearActiveAuthProcess(_ process: Process) {
+        if activeAuthProcess === process {
+            activeAuthProcess = nil
+        }
+    }
+
+    private func cleanupStaleAuthProcesses() {
+        let backendPID = process?.processIdentifier
+        let patterns = [
+            "cli-proxy-api-plus.*-claude-login",
+            "cli-proxy-api-plus.*-codex-login",
+            "cli-proxy-api-plus.*-github-copilot-login",
+            "cli-proxy-api-plus.*-qwen-login",
+            "cli-proxy-api-plus.*-antigravity-login",
+            "cli-proxy-api-plus.* -login"
+        ]
+
+        for pattern in patterns {
+            let checkTask = Process()
+            checkTask.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+            checkTask.arguments = ["-f", pattern]
+
+            let outputPipe = Pipe()
+            checkTask.standardOutput = outputPipe
+            checkTask.standardError = Pipe()
+
+            do {
+                try checkTask.run()
+                checkTask.waitUntilExit()
+                guard checkTask.terminationStatus == 0 else {
+                    continue
+                }
+
+                let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+                let output = String(data: data, encoding: .utf8) ?? ""
+                let pids = output.components(separatedBy: .newlines).compactMap { Int32($0) }
+
+                for pid in pids {
+                    if pid == backendPID {
+                        continue
+                    }
+                    kill(pid, SIGKILL)
+                    addLog("⚠️ Cleaned up stale auth listener process: \(pid)")
+                }
+            } catch {
+                // best-effort cleanup only
+            }
         }
     }
     
@@ -470,153 +636,262 @@ class ServerManager: ObservableObject {
     
     /// Saves a Z.AI API key to the auth directory
     func saveZaiApiKey(_ apiKey: String, completion: @escaping (Bool, String) -> Void) {
-        let authDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cli-proxy-api")
-        
-        // Create auth directory if needed
-        do {
-            try FileManager.default.createDirectory(at: authDir, withIntermediateDirectories: true)
-        } catch {
-            completion(false, "Failed to create auth directory: \(error.localizedDescription)")
-            return
-        }
-        
-        // Generate unique filename with masked key for display
-        let keyPreview = String(apiKey.prefix(8)) + "..." + String(apiKey.suffix(4))
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-        let filename = "zai-\(UUID().uuidString.prefix(8)).json"
-        let filePath = authDir.appendingPathComponent(filename)
-        
-        // Create auth JSON matching the format used by other providers
-        let authData: [String: Any] = [
-            "type": "zai",
-            "email": keyPreview,
-            "api_key": apiKey,
-            "created": timestamp
-        ]
-        
-        do {
-            let jsonData = try JSONSerialization.data(withJSONObject: authData, options: .prettyPrinted)
-            try jsonData.write(to: filePath)
-            // Set secure permissions (0600 - owner read/write only)
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: filePath.path)
-            addLog("✓ Z.AI API key saved to \(filename)")
-            
-            // Restart server to pick up new config (getConfigPath will merge Z.AI keys)
-            let wasRunning = isRunning
-            if wasRunning {
-                stop { [weak self] in
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        self?.start { _ in }
-                    }
+        credentialMutationQueue.async { [weak self] in
+            guard let self else { return }
+
+            do {
+                let filePath = try self.zaiAPIKeyStore.save(apiKey: apiKey)
+                self.addLog("✓ Z.AI API key saved to \(filePath.lastPathComponent)")
+                self.refreshAuthBackedConfiguration()
+                DispatchQueue.main.async {
+                    completion(true, "API key saved successfully")
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    completion(false, error.localizedDescription)
                 }
             }
-            
-            completion(true, "API key saved successfully")
-        } catch {
-            completion(false, "Failed to save API key: \(error.localizedDescription)")
         }
     }
     
-    /// Returns the config path to use, merging bundled config with Z.AI provider and provider exclusions
-    func getConfigPath() -> String {
-        guard let resourcePath = Bundle.main.resourcePath else {
-            return ""
-        }
+    func saveCustomProviderAPIKey(providerID: String, apiKey: String, completion: @escaping (Bool, String) -> Void) {
+        credentialMutationQueue.async { [weak self] in
+            guard let self else { return }
 
-        let bundledConfigPath = (resourcePath as NSString).appendingPathComponent("config.yaml")
-        let authDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cli-proxy-api")
+            do {
+                let baseConfig: LoadedBaseConfig
+                switch self.loadBaseConfigRoot() {
+                case .success(let loadedBaseConfig):
+                    baseConfig = loadedBaseConfig
+                case .failure(let error):
+                    DispatchQueue.main.async {
+                        completion(false, error.message)
+                    }
+                    return
+                }
 
-        // Check for Z.AI auth files
-        var zaiApiKeys: [String] = []
-        if let files = try? FileManager.default.contentsOfDirectory(at: authDir, includingPropertiesForKeys: nil) {
-            for file in files where file.lastPathComponent.hasPrefix("zai-") && file.pathExtension == "json" {
-                if let data = try? Data(contentsOf: file),
-                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let apiKey = json["api_key"] as? String {
-                    zaiApiKeys.append(apiKey)
+                let customProviders = ConfigComposer.parseCustomProviders(
+                    from: baseConfig.root,
+                    reservedProviderIDs: ProviderCatalog.reservedCustomProviderKeys
+                )
+                guard let provider = customProviders.first(where: { $0.id == providerID }) else {
+                    DispatchQueue.main.async {
+                        completion(false, "Custom provider '\(providerID)' is not defined in config.yaml.")
+                    }
+                    return
+                }
+
+                if provider.inlineAPIKeys.contains(apiKey) {
+                    self.addLog("✓ API key for custom provider \(providerID) already exists in config")
+                    DispatchQueue.main.async {
+                        completion(true, "API key already exists in config")
+                    }
+                    return
+                }
+
+                let saveResult = try self.customProviderCredentialStore.save(providerID: providerID, apiKey: apiKey)
+                switch saveResult {
+                case .created(let record):
+                    self.addLog("✓ Saved API key for custom provider: \(record.providerID)")
+                case .alreadyPresent(let record):
+                    self.addLog("✓ Custom provider key already present: \(record.label)")
+                case .reenabled(let record):
+                    self.addLog("✓ Re-enabled custom provider key: \(record.label)")
+                }
+                self.refreshAuthBackedConfiguration()
+                DispatchQueue.main.async {
+                    switch saveResult {
+                    case .created:
+                        completion(true, "API key saved successfully")
+                    case .alreadyPresent:
+                        completion(true, "API key already exists")
+                    case .reenabled:
+                        completion(true, "API key was already stored and has been re-enabled")
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    completion(false, error.localizedDescription)
                 }
             }
         }
+    }
 
-        // Build list of disabled providers
-        var disabledProviders: [String] = []
-        for (serviceKey, oauthKey) in Self.oauthProviderKeys {
-            if !isProviderEnabled(serviceKey) {
-                disabledProviders.append(oauthKey)
-            }
+    func refreshAuthBackedConfiguration() {
+        markObservedConfigInputsCurrent()
+        reloadCustomProviders()
+        requestConfigUpdate()
+    }
+
+    func handleObservedConfigInputsChanged() {
+        guard markObservedConfigInputsChanged() else {
+            return
         }
-
-        // If no Z.AI keys and no disabled providers, use bundled config
-        guard !zaiApiKeys.isEmpty || !disabledProviders.isEmpty else {
-            return bundledConfigPath
-        }
-
-        // Generate merged config
-        guard let bundledContent = try? String(contentsOfFile: bundledConfigPath, encoding: .utf8) else {
-            return bundledConfigPath
-        }
-        
-        var additionalConfig = ""
-
-        // Build oauth-excluded-models section for disabled providers
-        if !disabledProviders.isEmpty {
-            additionalConfig += """
-
-# Provider exclusions (auto-added by VibeProxy)
-# Disabled providers have all models excluded
-oauth-excluded-models:
-
-"""
-            for provider in disabledProviders.sorted() {
-                additionalConfig += "  \(provider):\n"
-                additionalConfig += "    - \"*\"\n"
-            }
-        }
-
-        // Build Z.AI openai-compatibility section (only if Z.AI is enabled)
-        if !zaiApiKeys.isEmpty && isProviderEnabled("zai") {
-            additionalConfig += """
-
-# Z.AI GLM Provider (auto-added by VibeProxy)
-openai-compatibility:
-  - name: "zai"
-    base-url: "https://api.z.ai/api/coding/paas/v4"
-    api-key-entries:
-
-"""
-            for key in zaiApiKeys {
-                // Escape special YAML characters in double-quoted strings
-                let escapedKey = key
-                    .replacingOccurrences(of: "\\", with: "\\\\")
-                    .replacingOccurrences(of: "\"", with: "\\\"")
-                    .replacingOccurrences(of: "\n", with: "\\n")
-                    .replacingOccurrences(of: "\t", with: "\\t")
-                additionalConfig += "      - api-key: \"\(escapedKey)\"\n"
-            }
-            additionalConfig += """
-    models:
-      - name: "glm-4.7"
-        alias: "glm-4.7"
-      - name: "glm-4-plus"
-        alias: "glm-4-plus"
-      - name: "glm-4-air"
-        alias: "glm-4-air"
-      - name: "glm-4-flash"
-        alias: "glm-4-flash"
-"""
-        }
-
-        let mergedContent = bundledContent + additionalConfig
-        let mergedConfigPath = authDir.appendingPathComponent("merged-config.yaml")
-        
+        reloadCustomProviders()
+        requestConfigUpdate()
+    }
+    
+    @discardableResult
+    func deleteCustomProviderCredential(_ credential: CustomProviderCredential) -> Bool {
         do {
-            try mergedContent.write(to: mergedConfigPath, atomically: true, encoding: .utf8)
-            // Set secure permissions (0600 - owner read/write only) since config contains API keys
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: mergedConfigPath.path)
-            return mergedConfigPath.path
+            let deletedCount = try customProviderCredentialStore.delete(
+                providerID: credential.providerID,
+                apiKey: credential.apiKey
+            )
+            addLog("✓ Removed custom provider key: \(credential.label)")
+            if deletedCount > 1 {
+                addLog("✓ Removed \(deletedCount) duplicate credential files for \(credential.providerID)")
+            }
+            markObservedConfigInputsCurrent()
+            reloadCustomProviders()
+            requestConfigUpdate()
+            return true
         } catch {
-            NSLog("[ServerManager] Failed to write merged config: %@", error.localizedDescription)
-            return bundledConfigPath
+            NSLog("[ServerManager] Failed to delete custom provider credential: %@", error.localizedDescription)
+            return false
+        }
+    }
+    
+    @discardableResult
+    func toggleCustomProviderCredentialDisabled(_ credential: CustomProviderCredential) -> Bool {
+        do {
+            try customProviderCredentialStore.setDisabled(
+                providerID: credential.providerID,
+                apiKey: credential.apiKey,
+                isDisabled: !credential.isDisabled
+            )
+            addLog(
+                credential.isDisabled
+                    ? "✓ Enabled custom provider key: \(credential.label)"
+                    : "⚠️ Disabled custom provider key: \(credential.label)"
+            )
+            markObservedConfigInputsCurrent()
+            reloadCustomProviders()
+            requestConfigUpdate()
+            return true
+        } catch {
+            NSLog("[ServerManager] Failed to toggle custom provider credential: %@", error.localizedDescription)
+            return false
+        }
+    }
+    
+    func reloadCustomProviders() {
+        switch loadBaseConfigRoot() {
+        case .success(let config):
+            clearConfigError()
+            let providers = ConfigComposer.parseCustomProviders(
+                from: config.root,
+                reservedProviderIDs: ProviderCatalog.reservedCustomProviderKeys
+            )
+            let credentialRecords = loadCustomProviderCredentialRecords()
+            let credentials = logicalCustomProviderCredentials(from: credentialRecords, providers: providers)
+
+            DispatchQueue.main.async {
+                self.customProviders = providers
+                self.customProviderCredentials = credentials
+            }
+        case .failure(let error):
+            publishConfigError(error.message)
+            DispatchQueue.main.async {
+                self.customProviders = []
+                self.customProviderCredentials = [:]
+            }
+        }
+    }
+    
+    /// Returns the config path to use, merging the base config with provider state and API-key auth files.
+    func getConfigPath() -> String {
+        switch resolveConfigPath() {
+        case .success(let path):
+            clearConfigError()
+            return path
+        case .failure(let error):
+            publishConfigError(error.message)
+            return ""
+        }
+    }
+
+    private func resolveConfigPath() -> Result<String, ConfigResolutionFailure> {
+        resolveConfigPath(enabledProviderStates: enabledProviders)
+    }
+
+    private func resolveConfigPath(
+        enabledProviderStates: [String: Bool]
+    ) -> Result<String, ConfigResolutionFailure> {
+        guard bundledConfigPath() != nil else {
+            return .failure(ConfigResolutionFailure(message: "Could not locate the bundled config.yaml in the app bundle."))
+        }
+        let baseConfigResult = loadBaseConfigRoot()
+        guard case .success(let baseConfig) = baseConfigResult else {
+            if case .failure(let error) = baseConfigResult {
+                return .failure(error)
+            }
+            return .failure(ConfigResolutionFailure(message: "Could not load the base configuration."))
+        }
+        
+        let authDir = authDirectoryURL()
+        let zaiApiKeys = loadZaiAPIKeys()
+        let customAuthRecords = loadCustomProviderCredentialRecords()
+        let managedCustomProviders = ConfigComposer.parseCustomProviders(
+            from: baseConfig.root,
+            reservedProviderIDs: ProviderCatalog.reservedCustomProviderKeys
+        )
+        let disabledProviders = ProviderCatalog.oauthProviderKeys.compactMap { serviceKey, oauthKey in
+            isProviderEnabled(
+                serviceKey,
+                baseConfigRoot: baseConfig.root,
+                enabledProviderStates: enabledProviderStates
+            ) ? nil : oauthKey
+        }
+        let disabledCustomProviderIDs = Set(managedCustomProviders.map { $0.id }).filter {
+            !isProviderEnabled(
+                $0,
+                baseConfigRoot: baseConfig.root,
+                enabledProviderStates: enabledProviderStates
+            )
+        }
+        var mergedRoot = ConfigComposer.composeRuntimeConfig(
+            baseRoot: baseConfig.root,
+            reservedCustomProviderKeys: ProviderCatalog.reservedCustomProviderKeys,
+            disabledCustomProviderIDs: disabledCustomProviderIDs,
+            disabledOAuthProviderKeys: disabledProviders,
+            zaiAPIKeys: zaiApiKeys,
+            customProviderAuthRecords: customAuthRecords.map {
+                ConfigProviderAuthRecord(
+                    providerID: $0.providerID,
+                    apiKey: $0.apiKey,
+                    isDisabled: $0.isDisabled
+                )
+            },
+            includeManagedZAIProvider: isProviderEnabled(
+                ProviderCatalog.managedZAIProviderName,
+                baseConfigRoot: baseConfig.root,
+                enabledProviderStates: enabledProviderStates
+            ),
+            managedZAIProviderName: ProviderCatalog.managedZAIProviderName
+        )
+        
+        let mergedConfigPath = authDir.appendingPathComponent(CustomProviderConstants.mergedConfigFilename)
+        if mergedRoot["api-keys"] == nil,
+           case .success(let existingRuntimeRoot) = loadYAMLDictionary(atPath: mergedConfigPath.path) {
+            mergedRoot = ConfigComposer.preservingRuntimeEditableTopLevelKeys(
+                in: mergedRoot,
+                from: existingRuntimeRoot
+            )
+        }
+
+        do {
+            try FileManager.default.createDirectory(at: authDir, withIntermediateDirectories: true)
+            let mergedContent = try Yams.dump(object: mergedRoot)
+            try mergedContent.write(to: mergedConfigPath, atomically: true, encoding: String.Encoding.utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: mergedConfigPath.path)
+            return .success(mergedConfigPath.path)
+        } catch {
+            return .failure(
+                ConfigResolutionFailure(
+                    message: "Failed to write merged config to \(mergedConfigPath.path): \(error.localizedDescription)"
+                )
+            )
         }
     }
     
@@ -666,6 +941,293 @@ openai-compatibility:
             // Silently fail - this is not critical
         }
     }
+    
+    private func bundledConfigPath() -> String? {
+        guard let resourcePath = Bundle.main.resourcePath else {
+            return nil
+        }
+        return (resourcePath as NSString).appendingPathComponent("config.yaml")
+    }
+    
+    private func authDirectoryURL() -> URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cli-proxy-api")
+    }
+    
+    private func loadBaseConfigRoot() -> Result<LoadedBaseConfig, ConfigResolutionFailure> {
+        guard let bundledConfigPath = bundledConfigPath() else {
+            return .failure(ConfigResolutionFailure(message: "Could not locate the bundled config.yaml in the app bundle."))
+        }
+        let bundledRootResult = loadYAMLDictionary(atPath: bundledConfigPath)
+        guard case .success(let bundledRoot) = bundledRootResult else {
+            if case .failure(let error) = bundledRootResult {
+                return .failure(error)
+            }
+            return .failure(ConfigResolutionFailure(message: "Could not load the bundled config at \(bundledConfigPath)."))
+        }
+        
+        let userConfigPath = authDirectoryURL()
+            .appendingPathComponent(CustomProviderConstants.userConfigFilename)
+            .path
+        guard FileManager.default.fileExists(atPath: userConfigPath) else {
+            return validatedLoadedBaseConfig(root: bundledRoot, isUserConfig: false)
+        }
+        
+        let userRootResult = loadYAMLDictionary(atPath: userConfigPath)
+        guard case .success(let userRoot) = userRootResult else {
+            if case .failure(let error) = userRootResult {
+                return .failure(error)
+            }
+            return .failure(ConfigResolutionFailure(message: "Could not load the user config at \(userConfigPath)."))
+        }
+        
+        let mergedRoot = ConfigComposer.composeAdditiveBaseConfig(
+            bundledRoot: bundledRoot,
+            userRoot: userRoot
+        )
+        
+        return validatedLoadedBaseConfig(root: mergedRoot, isUserConfig: true)
+    }
+    
+    private func loadYAMLDictionary(atPath path: String) -> Result<[String: Any], ConfigResolutionFailure> {
+        do {
+            let content = try String(contentsOfFile: path, encoding: .utf8)
+            guard let loaded = try Yams.load(yaml: content) else {
+                return .success([:])
+            }
+            guard let dictionary = ConfigComposer.stringKeyedDictionary(loaded) else {
+                return .failure(ConfigResolutionFailure(message: "Config at \(path) must be a YAML mapping at the root."))
+            }
+            return .success(dictionary)
+        } catch {
+            return .failure(ConfigResolutionFailure(message: "Failed to parse YAML at \(path): \(error.localizedDescription)"))
+        }
+    }
+
+    private func validatedLoadedBaseConfig(
+        root: [String: Any],
+        isUserConfig: Bool
+    ) -> Result<LoadedBaseConfig, ConfigResolutionFailure> {
+        let validationErrors = ConfigComposer.validateCustomProviders(
+            in: root,
+            reservedProviderIDs: ProviderCatalog.reservedCustomProviderKeys
+        )
+        guard validationErrors.isEmpty else {
+            return .failure(
+                ConfigResolutionFailure(
+                    message: "Invalid custom provider configuration. \(validationErrors.joined(separator: " "))"
+                )
+            )
+        }
+        return .success(LoadedBaseConfig(root: root, isUserConfig: isUserConfig))
+    }
+
+    private func currentObservedConfigInputsFingerprint() -> String {
+        ConfigInputFingerprint.compute(
+            in: authDirectoryURL(),
+            userConfigFilename: CustomProviderConstants.userConfigFilename
+        )
+    }
+
+    private func markObservedConfigInputsCurrent() {
+        let fingerprint = currentObservedConfigInputsFingerprint()
+        configInputStateQueue.sync {
+            observedConfigInputsFingerprint = fingerprint
+        }
+    }
+
+    private func markObservedConfigInputsChanged() -> Bool {
+        let fingerprint = currentObservedConfigInputsFingerprint()
+        return configInputStateQueue.sync {
+            guard fingerprint != observedConfigInputsFingerprint else {
+                return false
+            }
+            observedConfigInputsFingerprint = fingerprint
+            return true
+        }
+    }
+    
+    private func loadZaiAPIKeys() -> [String] {
+        let loadResult = zaiAPIKeyStore.loadActiveAPIKeys()
+        for issue in loadResult.issues {
+            NSLog("[ServerManager] Ignoring Z.AI API key file at %@: %@", issue.filePath.path, issue.message)
+        }
+        return loadResult.apiKeys
+    }
+    
+    private func loadCustomProviderCredentialRecords() -> [CustomProviderCredentialRecord] {
+        let loadResult = customProviderCredentialStore.loadAll()
+        for issue in loadResult.issues {
+            NSLog("[ServerManager] Ignoring custom provider credential file at %@: %@", issue.filePath.path, issue.message)
+        }
+        return loadResult.records
+    }
+
+    private func logicalCustomProviderCredentials(
+        from records: [CustomProviderCredentialRecord],
+        providers: [CustomProviderDefinition]
+    ) -> [String: [CustomProviderCredential]] {
+        let providersByID = Dictionary(uniqueKeysWithValues: providers.map { ($0.id, $0) })
+        let groupedRecords = Dictionary(
+            grouping: records.filter { providersByID[$0.providerID] != nil },
+            by: { CustomProviderCredentialKey(providerID: $0.providerID, apiKey: $0.apiKey) }
+        )
+
+        let logicalCredentials = groupedRecords.compactMapValues { groupedRecords -> CustomProviderCredential? in
+            guard let sampleRecord = groupedRecords.first,
+                  let provider = providersByID[sampleRecord.providerID],
+                  !provider.inlineAPIKeys.contains(sampleRecord.apiKey) else {
+                return nil
+            }
+
+            let preferredRecord = groupedRecords.sorted { lhs, rhs in
+                if lhs.isDisabled != rhs.isDisabled {
+                    return !lhs.isDisabled
+                }
+
+                let labelComparison = lhs.label.localizedCaseInsensitiveCompare(rhs.label)
+                if labelComparison != .orderedSame {
+                    return labelComparison == .orderedAscending
+                }
+
+                return lhs.filePath.lastPathComponent < rhs.filePath.lastPathComponent
+            }.first!
+
+            return CustomProviderCredential(
+                providerID: sampleRecord.providerID,
+                apiKey: sampleRecord.apiKey,
+                label: preferredRecord.label,
+                isDisabled: groupedRecords.allSatisfy { $0.isDisabled }
+            )
+        }
+
+        return Dictionary(grouping: logicalCredentials.values, by: \.providerID).mapValues { credentials in
+            credentials.sorted { lhs, rhs in
+                if lhs.isDisabled != rhs.isDisabled {
+                    return !lhs.isDisabled
+                }
+
+                let labelComparison = lhs.label.localizedCaseInsensitiveCompare(rhs.label)
+                if labelComparison != .orderedSame {
+                    return labelComparison == .orderedAscending
+                }
+
+                return lhs.id < rhs.id
+            }
+        }
+    }
+    
+    private func publishConfigError(_ message: String) {
+        let update = {
+            let shouldLog = self.configErrorMessage != message
+            self.configErrorMessage = message
+            if shouldLog {
+                self.addLog("❌ \(message)")
+            }
+        }
+        if Thread.isMainThread {
+            update()
+        } else {
+            DispatchQueue.main.async(execute: update)
+        }
+    }
+
+    private func clearConfigError() {
+        let update = {
+            self.configErrorMessage = nil
+        }
+        if Thread.isMainThread {
+            update()
+        } else {
+            DispatchQueue.main.async(execute: update)
+        }
+    }
+
+    private func requestConfigUpdate() {
+        let update: () -> Void = { [weak self] in
+            self?.beginConfigUpdateEvaluation()
+        }
+        if Thread.isMainThread {
+            update()
+        } else {
+            DispatchQueue.main.async(execute: update)
+        }
+    }
+
+    private func beginConfigUpdateEvaluation() {
+        assert(Thread.isMainThread, "beginConfigUpdateEvaluation must run on the main thread")
+
+        guard !isRestartingForConfigUpdate else {
+            hasPendingConfigUpdate = true
+            return
+        }
+
+        guard !isResolvingConfigUpdate else {
+            hasPendingConfigUpdate = true
+            return
+        }
+
+        let enabledProviderSnapshot = enabledProviders
+        hasPendingConfigUpdate = false
+        isResolvingConfigUpdate = true
+
+        configResolutionQueue.async { [weak self] in
+            guard let self else {
+                return
+            }
+
+            let result = self.resolveConfigPath(enabledProviderStates: enabledProviderSnapshot)
+            DispatchQueue.main.async { [weak self] in
+                self?.finishConfigUpdateResolution(result)
+            }
+        }
+    }
+
+    private func finishConfigUpdateResolution(_ result: Result<String, ConfigResolutionFailure>) {
+        assert(Thread.isMainThread, "finishConfigUpdateResolution must run on the main thread")
+
+        isResolvingConfigUpdate = false
+
+        guard !hasPendingConfigUpdate else {
+            requestConfigUpdate()
+            return
+        }
+
+        let configPath: String
+        switch result {
+        case .success(let resolvedPath):
+            clearConfigError()
+            configPath = resolvedPath
+        case .failure(let error):
+            publishConfigError(error.message)
+            return
+        }
+
+        let shouldRestart = isRunning && !activeConfigPath.isEmpty && activeConfigPath != configPath
+        if shouldRestart {
+            isRestartingForConfigUpdate = true
+            hasPendingConfigUpdate = false
+            addLog("Config path changed; restarting server")
+            stop { [weak self] in
+                self?.start { [weak self] _ in
+                    self?.finishConfigUpdateRestart()
+                }
+            }
+            return
+        }
+        
+        if isRunning {
+            addLog("Config updated (hot reload)")
+        }
+    }
+    
+    private func finishConfigUpdateRestart() {
+        isRestartingForConfigUpdate = false
+        guard hasPendingConfigUpdate else {
+            return
+        }
+        hasPendingConfigUpdate = false
+        requestConfigUpdate()
+    }
 }
 
 enum AuthCommand: Equatable {
@@ -673,6 +1235,7 @@ enum AuthCommand: Equatable {
     case codexLogin
     case copilotLogin
     case geminiLogin
+    case kimiLogin
     case qwenLogin(email: String)
     case antigravityLogin
 }

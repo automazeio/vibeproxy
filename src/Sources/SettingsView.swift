@@ -113,10 +113,14 @@ struct VercelGatewayControls: View {
 struct ServiceRow<ExtraContent: View>: View {
     let serviceType: ServiceType
     let iconName: String
+    let iconSystemName: String?
     let accounts: [AuthAccount]
     let isAuthenticating: Bool
     let helpText: String?
     let isEnabled: Bool
+    let isToggleLocked: Bool
+    let toggleHelpText: String?
+    let disabledReasonText: String?
     let customTitle: String?
     let onConnect: () -> Void
     let onDisconnect: (AuthAccount) -> Void
@@ -149,12 +153,17 @@ struct ServiceRow<ExtraContent: View>: View {
                 .toggleStyle(.switch)
                 .controlSize(.mini)
                 .labelsHidden()
-                .help(isEnabled ? "Disable this provider" : "Enable this provider")
+                .disabled(isToggleLocked)
+                .help(toggleHelpText ?? (isEnabled ? "Disable this provider" : "Enable this provider"))
 
                 if let nsImage = IconCatalog.shared.image(named: iconName, resizedTo: NSSize(width: 20, height: 20), template: true) {
                     Image(nsImage: nsImage)
                         .resizable()
                         .renderingMode(.template)
+                        .frame(width: 20, height: 20)
+                        .opacity(isEnabled ? 1.0 : 0.4)
+                } else if let iconSystemName {
+                    Image(systemName: iconSystemName)
                         .frame(width: 20, height: 20)
                         .opacity(isEnabled ? 1.0 : 0.4)
                 }
@@ -205,7 +214,7 @@ struct ServiceRow<ExtraContent: View>: View {
                     if isExpanded {
                         VStack(alignment: .leading, spacing: 6) {
                             ForEach(accounts) { account in
-                                AccountRowView(account: account, removeColor: removeColor, showDisableToggle: accounts.count > 1, isLastEnabled: !account.isDisabled && enabledCount <= 1, onToggleDisabled: {
+                                AccountRowView(account: account, removeColor: removeColor, showDisableToggle: accounts.count > 1 || account.isDisabled, isLastEnabled: !account.isDisabled && enabledCount <= 1, onToggleDisabled: {
                                     onToggleDisabled(account)
                                 }) {
                                     accountToRemove = account
@@ -222,6 +231,11 @@ struct ServiceRow<ExtraContent: View>: View {
                         .foregroundColor(.secondary)
                         .padding(.leading, 28)
                 }
+            } else if let disabledReasonText, !disabledReasonText.isEmpty {
+                Text(disabledReasonText)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.leading, 28)
             }
         }
         .padding(.vertical, 4)
@@ -257,25 +271,259 @@ struct ServiceRow<ExtraContent: View>: View {
     }
 }
 
+struct CustomProviderCredentialRowView: View {
+    let credential: CustomProviderCredential
+    let removeColor: Color
+    let showDisableToggle: Bool
+    let isLastEnabled: Bool
+    let onToggleDisabled: () -> Void
+    let onRemove: () -> Void
+    
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(credential.isDisabled ? Color.gray : Color.green)
+                .frame(width: 6, height: 6)
+            Text(credential.label)
+                .font(.caption)
+                .foregroundColor(credential.isDisabled ? .secondary.opacity(0.5) : .secondary)
+                .strikethrough(credential.isDisabled)
+            if credential.isDisabled {
+                Text("(disabled)")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+            if showDisableToggle {
+                let canDisable = credential.isDisabled || !isLastEnabled
+                Button(action: onToggleDisabled) {
+                    Text(credential.isDisabled ? "Enable" : "Disable")
+                        .font(.caption)
+                        .foregroundColor(credential.isDisabled ? .green : (canDisable ? .orange : .secondary.opacity(0.4)))
+                }
+                .buttonStyle(.plain)
+                .disabled(!canDisable)
+                .help(!canDisable ? "At least one API key must remain enabled" : "")
+                .onHover { inside in
+                    if canDisable {
+                        if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                    }
+                }
+            }
+            Button(action: onRemove) {
+                HStack(spacing: 2) {
+                    Image(systemName: "minus.circle.fill")
+                        .font(.caption)
+                    Text("Remove")
+                        .font(.caption)
+                }
+                .foregroundColor(removeColor)
+            }
+            .buttonStyle(.plain)
+            .onHover { inside in
+                if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            }
+        }
+        .padding(.leading, 28)
+    }
+}
+
+struct CustomProviderRow: View {
+    let provider: CustomProviderDefinition
+    let credentials: [CustomProviderCredential]
+    let isAuthenticating: Bool
+    let isEnabled: Bool
+    let onConnect: () -> Void
+    let onDisconnect: (CustomProviderCredential) -> Void
+    let onToggleDisabled: (CustomProviderCredential) -> Void
+    let onToggleEnabled: (Bool) -> Void
+    var onExpandChange: ((Bool) -> Void)? = nil
+    
+    @State private var isExpanded = false
+    @State private var credentialToRemove: CustomProviderCredential?
+    @State private var showingRemoveConfirmation = false
+    
+    private var enabledCredentialCount: Int { credentials.filter { !$0.isDisabled }.count }
+    private var totalConfiguredKeyCount: Int { credentials.count + provider.inlineKeyCount }
+    private var totalEnabledKeyCount: Int { enabledCredentialCount + provider.inlineKeyCount }
+    private let removeColor = Color(red: 0xeb/255, green: 0x0f/255, blue: 0x0f/255)
+    
+    private var summaryText: String {
+        if totalConfiguredKeyCount == 0 {
+            return "No configured API keys"
+        }
+        if provider.inlineKeyCount > 0 && !credentials.isEmpty {
+            return "\(totalConfiguredKeyCount) API keys • \(provider.inlineKeyCount) in config • \(credentials.count) added here"
+        }
+        if provider.inlineKeyCount > 0 {
+            return "\(totalConfiguredKeyCount) API key\(totalConfiguredKeyCount == 1 ? "" : "s") from config"
+        }
+        return "\(totalConfiguredKeyCount) API key\(totalConfiguredKeyCount == 1 ? "" : "s") added here"
+    }
+
+    private var poolingStatusText: String? {
+        guard totalEnabledKeyCount > 1 else {
+            return nil
+        }
+        return "• Pooled across available keys"
+    }
+
+    private var endpointSummaryText: String {
+        "Endpoint: \(provider.baseURL)"
+    }
+
+    private var modelSummaryText: String? {
+        guard !provider.modelAliases.isEmpty else {
+            return nil
+        }
+        return "Models: \(provider.modelAliases.joined(separator: ", "))"
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Toggle("", isOn: Binding(
+                    get: { isEnabled },
+                    set: { onToggleEnabled($0) }
+                ))
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .labelsHidden()
+                .help(isEnabled ? "Disable this provider" : "Enable this provider")
+                
+                Image(systemName: provider.effectiveIconSystemName)
+                    .frame(width: 20, height: 20)
+                    .foregroundColor(isEnabled ? .primary : .secondary)
+                    .opacity(isEnabled ? 1.0 : 0.4)
+                
+                Text(provider.title)
+                    .fontWeight(.medium)
+                    .foregroundColor(isEnabled ? .primary : .secondary)
+                
+                Spacer()
+                
+                if isAuthenticating {
+                    ProgressView()
+                        .controlSize(.small)
+                } else if isEnabled {
+                    Button("Add API Key") {
+                        onConnect()
+                    }
+                    .controlSize(.small)
+                }
+            }
+            
+            if isEnabled {
+                if totalConfiguredKeyCount > 0 {
+                    HStack(spacing: 4) {
+                        Text(summaryText)
+                            .font(.caption)
+                            .foregroundColor(.green)
+                        
+                        if let poolingStatusText {
+                            Text(poolingStatusText)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.leading, 28)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isExpanded.toggle()
+                        }
+                    }
+                    
+                    if isExpanded {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(endpointSummaryText)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .padding(.leading, 28)
+
+                            if let modelSummaryText {
+                                Text(modelSummaryText)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .padding(.leading, 28)
+                            }
+
+                            if provider.inlineKeyCount > 0 {
+                                Text("Using \(provider.inlineKeyCount) API key\(provider.inlineKeyCount == 1 ? "" : "s") from ~/.cli-proxy-api/config.yaml")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .padding(.leading, 28)
+                            }
+                            
+                            ForEach(credentials) { credential in
+                                CustomProviderCredentialRowView(
+                                    credential: credential,
+                                    removeColor: removeColor,
+                                    showDisableToggle: totalConfiguredKeyCount > 1,
+                                    isLastEnabled: !credential.isDisabled && totalEnabledKeyCount <= 1,
+                                    onToggleDisabled: { onToggleDisabled(credential) },
+                                    onRemove: {
+                                        credentialToRemove = credential
+                                        showingRemoveConfirmation = true
+                                    }
+                                )
+                            }
+                        }
+                        .padding(.top, 4)
+                    }
+                } else {
+                    Text("No configured API keys")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.leading, 28)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+        .help(provider.effectiveHelpText)
+        .onChange(of: isExpanded) { newValue in
+            onExpandChange?(newValue)
+        }
+        .alert("Remove API Key", isPresented: $showingRemoveConfirmation) {
+            Button("Cancel", role: .cancel) {
+                credentialToRemove = nil
+            }
+            Button("Remove", role: .destructive) {
+                if let credential = credentialToRemove {
+                    onDisconnect(credential)
+                }
+                credentialToRemove = nil
+            }
+        } message: {
+            if let credential = credentialToRemove {
+                Text("Are you sure you want to remove \(credential.label) from \(provider.title)?")
+            }
+        }
+    }
+}
+
 struct SettingsView: View {
     @ObservedObject var serverManager: ServerManager
     @StateObject private var authManager = AuthManager()
     @State private var launchAtLogin = false
     @State private var authenticatingService: ServiceType? = nil
+    @State private var authenticatingCustomProviderID: String? = nil
     @State private var showingAuthResult = false
     @State private var authResultMessage = ""
     @State private var authResultSuccess = false
-    @State private var fileMonitor: DispatchSourceFileSystemObject?
     @State private var showingQwenEmailPrompt = false
     @State private var qwenEmail = ""
     @State private var showingZaiApiKeyPrompt = false
     @State private var zaiApiKey = ""
-    @State private var pendingRefresh: DispatchWorkItem?
+    @State private var selectedCustomProvider: CustomProviderDefinition?
+    @State private var customProviderApiKey = ""
     @State private var expandedRowCount = 0
     
     private enum Timing {
         static let serverRestartDelay: TimeInterval = 0.3
-        static let refreshDebounce: TimeInterval = 0.5
     }
 
     private var appVersion: String {
@@ -310,6 +558,14 @@ struct SettingsView: View {
                     }
                 }
 
+                if let configErrorMessage = serverManager.configErrorMessage {
+                    Section("Configuration Error") {
+                        Text(configErrorMessage)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
+                }
+
                 Section {
                     Toggle("Launch at login", isOn: $launchAtLogin)
                         .onChange(of: launchAtLogin) { newValue in
@@ -329,10 +585,14 @@ struct SettingsView: View {
                     ServiceRow(
                         serviceType: .antigravity,
                         iconName: "icon-antigravity.png",
+                        iconSystemName: nil,
                         accounts: authManager.accounts(for: .antigravity),
                         isAuthenticating: authenticatingService == .antigravity,
                         helpText: "Antigravity provides OAuth-based access to various AI models including Gemini and Claude. One login gives you access to multiple AI services.",
                         isEnabled: serverManager.isProviderEnabled("antigravity"),
+                        isToggleLocked: serverManager.isProviderToggleLocked("antigravity"),
+                        toggleHelpText: serverManager.providerConfigLockReason("antigravity"),
+                        disabledReasonText: serverManager.providerConfigLockReason("antigravity"),
                         customTitle: nil,
                         onConnect: { connectService(.antigravity) },
                         onDisconnect: { account in disconnectAccount(account) },
@@ -344,10 +604,14 @@ struct SettingsView: View {
                     ServiceRow(
                         serviceType: .claude,
                         iconName: "icon-claude.png",
+                        iconSystemName: nil,
                         accounts: authManager.accounts(for: .claude),
                         isAuthenticating: authenticatingService == .claude,
                         helpText: nil,
                         isEnabled: serverManager.isProviderEnabled("claude"),
+                        isToggleLocked: serverManager.isProviderToggleLocked("claude"),
+                        toggleHelpText: serverManager.providerConfigLockReason("claude"),
+                        disabledReasonText: serverManager.providerConfigLockReason("claude"),
                         customTitle: serverManager.vercelGatewayEnabled && !serverManager.vercelApiKey.isEmpty ? "Claude Code (via Vercel)" : nil,
                         onConnect: { connectService(.claude) },
                         onDisconnect: { account in disconnectAccount(account) },
@@ -361,10 +625,14 @@ struct SettingsView: View {
                     ServiceRow(
                         serviceType: .codex,
                         iconName: "icon-codex.png",
+                        iconSystemName: nil,
                         accounts: authManager.accounts(for: .codex),
                         isAuthenticating: authenticatingService == .codex,
                         helpText: nil,
                         isEnabled: serverManager.isProviderEnabled("codex"),
+                        isToggleLocked: serverManager.isProviderToggleLocked("codex"),
+                        toggleHelpText: serverManager.providerConfigLockReason("codex"),
+                        disabledReasonText: serverManager.providerConfigLockReason("codex"),
                         customTitle: nil,
                         onConnect: { connectService(.codex) },
                         onDisconnect: { account in disconnectAccount(account) },
@@ -376,10 +644,14 @@ struct SettingsView: View {
                     ServiceRow(
                         serviceType: .gemini,
                         iconName: "icon-gemini.png",
+                        iconSystemName: nil,
                         accounts: authManager.accounts(for: .gemini),
                         isAuthenticating: authenticatingService == .gemini,
                         helpText: "⚠️ Note: If you're an existing Gemini user with multiple projects, authentication will use your default project. Set your desired project as default in Google AI Studio before connecting.",
                         isEnabled: serverManager.isProviderEnabled("gemini"),
+                        isToggleLocked: serverManager.isProviderToggleLocked("gemini"),
+                        toggleHelpText: serverManager.providerConfigLockReason("gemini"),
+                        disabledReasonText: serverManager.providerConfigLockReason("gemini"),
                         customTitle: nil,
                         onConnect: { connectService(.gemini) },
                         onDisconnect: { account in disconnectAccount(account) },
@@ -389,12 +661,35 @@ struct SettingsView: View {
                     ) { EmptyView() }
 
                     ServiceRow(
+                        serviceType: .kimi,
+                        iconName: "icon-kimi.png",
+                        iconSystemName: "moon.stars.fill",
+                        accounts: authManager.accounts(for: .kimi),
+                        isAuthenticating: authenticatingService == .kimi,
+                        helpText: "Kimi uses browser-based account authentication so you can route requests through your Kimi subscription instead of an API key.",
+                        isEnabled: serverManager.isProviderEnabled("kimi"),
+                        isToggleLocked: serverManager.isProviderToggleLocked("kimi"),
+                        toggleHelpText: serverManager.providerConfigLockReason("kimi"),
+                        disabledReasonText: serverManager.providerConfigLockReason("kimi"),
+                        customTitle: nil,
+                        onConnect: { connectService(.kimi) },
+                        onDisconnect: { account in disconnectAccount(account) },
+                        onToggleDisabled: { account in toggleAccountDisabled(account) },
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("kimi", enabled: enabled) },
+                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
+                    ) { EmptyView() }
+
+                    ServiceRow(
                         serviceType: .copilot,
                         iconName: "icon-copilot.png",
+                        iconSystemName: nil,
                         accounts: authManager.accounts(for: .copilot),
                         isAuthenticating: authenticatingService == .copilot,
                         helpText: "GitHub Copilot provides access to Claude, GPT, Gemini and other models via your Copilot subscription.",
                         isEnabled: serverManager.isProviderEnabled("github-copilot"),
+                        isToggleLocked: serverManager.isProviderToggleLocked("github-copilot"),
+                        toggleHelpText: serverManager.providerConfigLockReason("github-copilot"),
+                        disabledReasonText: serverManager.providerConfigLockReason("github-copilot"),
                         customTitle: nil,
                         onConnect: { connectService(.copilot) },
                         onDisconnect: { account in disconnectAccount(account) },
@@ -406,10 +701,14 @@ struct SettingsView: View {
                     ServiceRow(
                         serviceType: .qwen,
                         iconName: "icon-qwen.png",
+                        iconSystemName: nil,
                         accounts: authManager.accounts(for: .qwen),
                         isAuthenticating: authenticatingService == .qwen,
                         helpText: nil,
                         isEnabled: serverManager.isProviderEnabled("qwen"),
+                        isToggleLocked: serverManager.isProviderToggleLocked("qwen"),
+                        toggleHelpText: serverManager.providerConfigLockReason("qwen"),
+                        disabledReasonText: serverManager.providerConfigLockReason("qwen"),
                         customTitle: nil,
                         onConnect: { showingQwenEmailPrompt = true },
                         onDisconnect: { account in disconnectAccount(account) },
@@ -421,10 +720,14 @@ struct SettingsView: View {
                     ServiceRow(
                         serviceType: .zai,
                         iconName: "icon-zai.png",
+                        iconSystemName: nil,
                         accounts: authManager.accounts(for: .zai),
                         isAuthenticating: authenticatingService == .zai,
                         helpText: "Z.AI GLM provides access to GLM-4.7 and other models via API key. Get your key at https://z.ai/manage-apikey/apikey-list",
                         isEnabled: serverManager.isProviderEnabled("zai"),
+                        isToggleLocked: serverManager.isProviderToggleLocked("zai"),
+                        toggleHelpText: serverManager.providerConfigLockReason("zai"),
+                        disabledReasonText: serverManager.providerConfigLockReason("zai"),
                         customTitle: nil,
                         onConnect: { showingZaiApiKeyPrompt = true },
                         onDisconnect: { account in disconnectAccount(account) },
@@ -432,6 +735,35 @@ struct SettingsView: View {
                         onToggleEnabled: { enabled in serverManager.setProviderEnabled("zai", enabled: enabled) },
                         onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
                     ) { EmptyView() }
+                }
+                
+                if !serverManager.customProviders.isEmpty {
+                    Section("Custom Providers") {
+                        ForEach(serverManager.customProviders) { provider in
+                            CustomProviderRow(
+                                provider: provider,
+                                credentials: serverManager.customProviderCredentials[provider.id] ?? [],
+                                isAuthenticating: authenticatingCustomProviderID == provider.id,
+                                isEnabled: serverManager.isProviderEnabled(provider.id),
+                                onConnect: {
+                                    customProviderApiKey = ""
+                                    selectedCustomProvider = provider
+                                },
+                                onDisconnect: { credential in
+                                    disconnectCustomProviderCredential(provider: provider, credential: credential)
+                                },
+                                onToggleDisabled: { credential in
+                                    toggleCustomProviderCredential(provider: provider, credential: credential)
+                                },
+                                onToggleEnabled: { enabled in
+                                    serverManager.setProviderEnabled(provider.id, enabled: enabled)
+                                },
+                                onExpandChange: { expanded in
+                                    expandedRowCount += expanded ? 1 : -1
+                                }
+                            )
+                        }
+                    }
                 }
             }
             .formStyle(.grouped)
@@ -520,7 +852,7 @@ struct SettingsView: View {
                 Text("Enter your Z.AI API key from https://z.ai/manage-apikey/apikey-list")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                TextField("", text: $zaiApiKey)
+                SecureField("", text: $zaiApiKey)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 300)
                 HStack(spacing: 12) {
@@ -539,13 +871,42 @@ struct SettingsView: View {
             .padding(24)
             .frame(width: 400)
         }
+        .sheet(item: $selectedCustomProvider, onDismiss: {
+            customProviderApiKey = ""
+        }) { provider in
+            VStack(spacing: 16) {
+                Text("\(provider.title) API Key")
+                    .font(.headline)
+                Text("Enter an API key for \(provider.title)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                SecureField("", text: $customProviderApiKey)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 320)
+                HStack(spacing: 12) {
+                    Button("Cancel") {
+                        selectedCustomProvider = nil
+                        customProviderApiKey = ""
+                    }
+                    Button("Add Key") {
+                        let currentProvider = provider
+                        selectedCustomProvider = nil
+                        startCustomProviderAuth(provider: currentProvider, apiKey: customProviderApiKey)
+                    }
+                    .disabled(customProviderApiKey.isEmpty)
+                    .keyboardShortcut(.defaultAction)
+                }
+            }
+            .padding(24)
+            .frame(width: 420)
+        }
         .onAppear {
             authManager.checkAuthStatus()
+            serverManager.reloadCustomProviders()
             checkLaunchAtLogin()
-            startMonitoringAuthDirectory()
         }
-        .onDisappear {
-            stopMonitoringAuthDirectory()
+        .onReceive(NotificationCenter.default.publisher(for: .authDirectoryChanged)) { _ in
+            authManager.checkAuthStatus()
         }
         .alert("Authentication Result", isPresented: $showingAuthResult) {
             Button("OK", role: .cancel) { }
@@ -558,6 +919,7 @@ struct SettingsView: View {
     
     private func toggleAccountDisabled(_ account: AuthAccount) {
         if authManager.toggleAccountDisabled(account) {
+            serverManager.refreshAuthBackedConfiguration()
             authResultSuccess = true
             authResultMessage = account.isDisabled
                 ? "✓ Enabled \(account.displayName)"
@@ -600,16 +962,13 @@ struct SettingsView: View {
         NSLog("[SettingsView] Starting %@ authentication", serviceType.displayName)
         
         let command: AuthCommand
-        switch serviceType {
-        case .claude: command = .claudeLogin
-        case .codex: command = .codexLogin
-        case .copilot: command = .copilotLogin
-        case .gemini: command = .geminiLogin
-        case .qwen:
+        switch serviceType.connectionAction {
+        case .authCommand(let authCommand):
+            command = authCommand
+        case .promptForQwenEmail:
             authenticatingService = nil
             return // handled separately with email prompt
-        case .antigravity: command = .antigravityLogin
-        case .zai:
+        case .promptForZAIAPIKey:
             authenticatingService = nil
             return // handled separately with API key prompt
         }
@@ -647,6 +1006,8 @@ struct SettingsView: View {
             return "🌐 GitHub Copilot authentication started!\n\nPlease visit github.com/login/device and enter the code shown.\n\nThe app will automatically detect your credentials."
         case .gemini:
             return "🌐 Browser opened for Gemini authentication.\n\nPlease complete the login in your browser.\n\n⚠️ Note: If you have multiple projects, the default project will be used."
+        case .kimi:
+            return "🌐 Browser opened for Kimi authentication.\n\nPlease complete the login in your browser.\n\nThe app will automatically detect your Kimi account."
         case .qwen:
             return "🌐 Browser opened for Qwen authentication.\n\nPlease complete the login in your browser."
         case .antigravity:
@@ -703,6 +1064,64 @@ struct SettingsView: View {
         }
     }
     
+    private func startCustomProviderAuth(provider: CustomProviderDefinition, apiKey: String) {
+        authenticatingCustomProviderID = provider.id
+        NSLog("[SettingsView] Adding API key for custom provider %@", provider.id)
+        
+        serverManager.saveCustomProviderAPIKey(providerID: provider.id, apiKey: apiKey) { success, output in
+            NSLog("[SettingsView] Custom provider key save completed - success: %d, output: %@", success, output)
+            DispatchQueue.main.async {
+                self.authenticatingCustomProviderID = nil
+                self.customProviderApiKey = ""
+                
+                if success {
+                    self.authResultSuccess = true
+                    switch output {
+                    case "API key saved successfully":
+                        self.authResultMessage = "✓ \(provider.title) API key added successfully.\n\nYou can now use this provider through the proxy."
+                    case "API key already exists in config":
+                        self.authResultMessage = "✓ \(provider.title) already has this API key in ~/.cli-proxy-api/config.yaml."
+                    case "API key already exists":
+                        self.authResultMessage = "✓ \(provider.title) already has this API key stored."
+                    case "API key was already stored and has been re-enabled":
+                        self.authResultMessage = "✓ \(provider.title) already had this API key stored, and it has been re-enabled."
+                    default:
+                        self.authResultMessage = output
+                    }
+                    self.showingAuthResult = true
+                } else {
+                    self.authResultSuccess = false
+                    self.authResultMessage = "Failed to save API key for \(provider.title).\n\nDetails: \(output.isEmpty ? "Unknown error" : output)"
+                    self.showingAuthResult = true
+                }
+            }
+        }
+    }
+    
+    private func toggleCustomProviderCredential(provider: CustomProviderDefinition, credential: CustomProviderCredential) {
+        if serverManager.toggleCustomProviderCredentialDisabled(credential) {
+            authResultSuccess = true
+            authResultMessage = credential.isDisabled
+                ? "✓ Enabled \(credential.label) for \(provider.title)"
+                : "✓ Disabled \(credential.label) for \(provider.title)"
+        } else {
+            authResultSuccess = false
+            authResultMessage = "Failed to update \(credential.label) for \(provider.title). Please try again."
+        }
+        showingAuthResult = true
+    }
+    
+    private func disconnectCustomProviderCredential(provider: CustomProviderDefinition, credential: CustomProviderCredential) {
+        if serverManager.deleteCustomProviderCredential(credential) {
+            authResultSuccess = true
+            authResultMessage = "✓ Removed \(credential.label) from \(provider.title)"
+        } else {
+            authResultSuccess = false
+            authResultMessage = "Failed to remove \(credential.label) from \(provider.title)"
+        }
+        showingAuthResult = true
+    }
+    
     private func disconnectAccount(_ account: AuthAccount) {
         let wasRunning = serverManager.isRunning
         
@@ -729,45 +1148,5 @@ struct SettingsView: View {
         } else {
             cleanup()
         }
-    }
-    
-    // MARK: - File Monitoring
-    
-    private func startMonitoringAuthDirectory() {
-        let authDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cli-proxy-api")
-        try? FileManager.default.createDirectory(at: authDir, withIntermediateDirectories: true)
-        
-        let fileDescriptor = open(authDir.path, O_EVTONLY)
-        guard fileDescriptor >= 0 else { return }
-        
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fileDescriptor,
-            eventMask: [.write, .delete, .rename],
-            queue: DispatchQueue.main
-        )
-        
-        source.setEventHandler { [self] in
-            // Debounce rapid file changes to prevent UI flashing
-            pendingRefresh?.cancel()
-            let workItem = DispatchWorkItem {
-                NSLog("[FileMonitor] Auth directory changed - refreshing status")
-                authManager.checkAuthStatus()
-            }
-            pendingRefresh = workItem
-            DispatchQueue.main.asyncAfter(deadline: .now() + Timing.refreshDebounce, execute: workItem)
-        }
-        
-        source.setCancelHandler {
-            close(fileDescriptor)
-        }
-        
-        source.resume()
-        fileMonitor = source
-    }
-    
-    private func stopMonitoringAuthDirectory() {
-        pendingRefresh?.cancel()
-        fileMonitor?.cancel()
-        fileMonitor = nil
     }
 }

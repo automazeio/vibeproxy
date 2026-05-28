@@ -5,6 +5,7 @@ enum ServiceType: String, CaseIterable {
     case codex
     case copilot = "github-copilot"
     case gemini
+    case kimi
     case qwen
     case antigravity
     case zai
@@ -15,6 +16,7 @@ enum ServiceType: String, CaseIterable {
         case .codex: return "Codex"
         case .copilot: return "GitHub Copilot"
         case .gemini: return "Gemini"
+        case .kimi: return "Kimi"
         case .qwen: return "Qwen"
         case .antigravity: return "Antigravity"
         case .zai: return "Z.AI GLM"

@@ -14,7 +14,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
     private var notificationPermissionGranted = false
     private let updaterController: SPUStandardUpdaterController
     private var authFileMonitor: DispatchSourceFileSystemObject?
+    private var userConfigFileMonitor: DispatchSourceFileSystemObject?
+    private var configInputPoller: DispatchSourceTimer?
     private var pendingAuthRefresh: DispatchWorkItem?
+    private var polledConfigInputsFingerprint = ""
     
     override init() {
         self.updaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
@@ -127,9 +130,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
     }
     
     func setupMenuBar() {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem.isVisible = true
 
         if let button = statusItem.button {
+            button.imagePosition = .imageOnly
+            button.toolTip = "VibeProxy"
             if let icon = IconCatalog.shared.image(named: "icon-inactive.png", resizedTo: NSSize(width: 18, height: 18), template: true) {
                 button.image = icon
             } else {
@@ -296,6 +302,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
 
     @objc func handleAuthDirectoryChanged() {
         NSLog("[AppDelegate] Auth directory changed notification received — refreshing settings")
+        serverManager.handleObservedConfigInputsChanged()
         // Re-open settings window if it exists so the user sees the new account
         if let window = settingsWindow {
             window.makeKeyAndOrderFront(nil)
@@ -410,10 +417,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
         )
 
         source.setEventHandler { [weak self] in
+            self?.refreshUserConfigFileMonitor()
             self?.pendingAuthRefresh?.cancel()
             let workItem = DispatchWorkItem {
-                NSLog("[AppDelegate] Auth directory changed — posting notification")
-                NotificationCenter.default.post(name: .authDirectoryChanged, object: nil)
+                self?.postObservedConfigInputsChanged(reason: "Auth directory changed")
             }
             self?.pendingAuthRefresh = workItem
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: workItem)
@@ -425,6 +432,81 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
 
         source.resume()
         authFileMonitor = source
+        refreshUserConfigFileMonitor()
+        startPollingConfigInputs()
+    }
+
+    private func refreshUserConfigFileMonitor() {
+        userConfigFileMonitor?.cancel()
+        userConfigFileMonitor = nil
+
+        let configURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cli-proxy-api")
+            .appendingPathComponent("config.yaml")
+
+        guard FileManager.default.fileExists(atPath: configURL.path) else {
+            return
+        }
+
+        let fileDescriptor = open(configURL.path, O_EVTONLY)
+        guard fileDescriptor >= 0 else { return }
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fileDescriptor,
+            eventMask: [.write, .delete, .rename],
+            queue: DispatchQueue.main
+        )
+
+        source.setEventHandler { [weak self] in
+            if source.data.contains(.delete) || source.data.contains(.rename) {
+                self?.refreshUserConfigFileMonitor()
+            }
+            self?.pendingAuthRefresh?.cancel()
+            let workItem = DispatchWorkItem {
+                self?.postObservedConfigInputsChanged(reason: "User config changed")
+            }
+            self?.pendingAuthRefresh = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: workItem)
+        }
+
+        source.setCancelHandler {
+            close(fileDescriptor)
+        }
+
+        source.resume()
+        userConfigFileMonitor = source
+    }
+
+    private func startPollingConfigInputs() {
+        configInputPoller?.cancel()
+        polledConfigInputsFingerprint = currentConfigInputsFingerprint()
+
+        let poller = DispatchSource.makeTimerSource(queue: DispatchQueue.main)
+        poller.schedule(deadline: .now() + 1, repeating: 1)
+        poller.setEventHandler { [weak self] in
+            guard let self else { return }
+            let currentFingerprint = self.currentConfigInputsFingerprint()
+            guard currentFingerprint != self.polledConfigInputsFingerprint else {
+                return
+            }
+            self.polledConfigInputsFingerprint = currentFingerprint
+            self.postObservedConfigInputsChanged(reason: "Config input fingerprint changed during poll")
+        }
+        poller.resume()
+        configInputPoller = poller
+    }
+
+    private func postObservedConfigInputsChanged(reason: String) {
+        polledConfigInputsFingerprint = currentConfigInputsFingerprint()
+        NSLog("[AppDelegate] %@ — posting notification", reason)
+        NotificationCenter.default.post(name: .authDirectoryChanged, object: nil)
+    }
+
+    private func currentConfigInputsFingerprint() -> String {
+        ConfigInputFingerprint.compute(
+            in: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cli-proxy-api"),
+            userConfigFilename: "config.yaml"
+        )
     }
 
     // MARK: - Vercel Config Sync

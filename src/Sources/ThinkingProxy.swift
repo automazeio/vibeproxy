@@ -262,9 +262,14 @@ class ThinkingProxy {
         // Try to parse and modify JSON body for POST requests
         var modifiedBody = bodyString
         var thinkingEnabled = false
+        var matchedCopilotAlias = false
         
         if method == "POST" && !bodyString.isEmpty {
-            if let result = processThinkingParameter(jsonString: bodyString) {
+            let aliasRewrite = ModelAliasMapper.rewriteModelIfAlias(in: bodyString)
+            modifiedBody = aliasRewrite.body
+            matchedCopilotAlias = aliasRewrite.matchedAlias
+
+            if let result = processThinkingParameter(jsonString: modifiedBody) {
                 modifiedBody = result.0
                 thinkingEnabled = result.1
             }
@@ -275,7 +280,7 @@ class ThinkingProxy {
         }
         
         // Route Claude requests through Vercel AI Gateway when configured
-        if vercelConfig.isActive && method == "POST" && isClaudeModelRequest(body: modifiedBody) {
+        if vercelConfig.isActive && method == "POST" && isClaudeModelRequest(body: modifiedBody) && !matchedCopilotAlias {
             NSLog("[ThinkingProxy] Routing Claude request via Vercel AI Gateway")
             forwardToVercel(method: method, path: "/v1/messages", version: httpVersion, headers: headers, body: modifiedBody, thinkingEnabled: thinkingEnabled, originalConnection: connection)
             return
