@@ -92,6 +92,7 @@ class ServerManager: ObservableObject {
     private let configInputStateQueue = DispatchQueue(label: "io.automaze.vibeproxy.config-input-state", qos: .userInitiated)
     private let configResolutionQueue = DispatchQueue(label: "io.automaze.vibeproxy.config-resolution", qos: .userInitiated)
     private lazy var zaiAPIKeyStore = ZAIAPIKeyStore(directoryURL: authDirectoryURL())
+    private lazy var miniMaxAPIKeyStore = MiniMaxAPIKeyStore(directoryURL: authDirectoryURL())
     private lazy var customProviderCredentialStore = CustomProviderCredentialStore(directoryURL: authDirectoryURL())
     private var activeConfigPath = ""
     private var isRestartingForConfigUpdate = false
@@ -233,7 +234,7 @@ class ServerManager: ObservableObject {
             return
         }
         
-        // Use config path (merged with Z.AI if keys exist)
+        // Use config path merged with managed provider keys when present.
         let configPath = getConfigPath()
         guard !configPath.isEmpty && FileManager.default.fileExists(atPath: configPath) else {
             addLog("❌ Error: \(configErrorMessage ?? "Could not resolve active config path")")
@@ -653,6 +654,26 @@ class ServerManager: ObservableObject {
             }
         }
     }
+
+    /// Saves a MiniMax API key to the auth directory
+    func saveMiniMaxApiKey(_ apiKey: String, completion: @escaping (Bool, String) -> Void) {
+        credentialMutationQueue.async { [weak self] in
+            guard let self else { return }
+
+            do {
+                let filePath = try self.miniMaxAPIKeyStore.save(apiKey: apiKey)
+                self.addLog("✓ MiniMax API key saved to \(filePath.lastPathComponent)")
+                self.refreshAuthBackedConfiguration()
+                DispatchQueue.main.async {
+                    completion(true, "API key saved successfully")
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    completion(false, error.localizedDescription)
+                }
+            }
+        }
+    }
     
     func saveCustomProviderAPIKey(providerID: String, apiKey: String, completion: @escaping (Bool, String) -> Void) {
         credentialMutationQueue.async { [weak self] in
@@ -831,6 +852,7 @@ class ServerManager: ObservableObject {
         
         let authDir = authDirectoryURL()
         let zaiApiKeys = loadZaiAPIKeys()
+        let miniMaxApiKeys = loadMiniMaxAPIKeys()
         let customAuthRecords = loadCustomProviderCredentialRecords()
         let managedCustomProviders = ConfigComposer.parseCustomProviders(
             from: baseConfig.root,
@@ -856,6 +878,7 @@ class ServerManager: ObservableObject {
             disabledCustomProviderIDs: disabledCustomProviderIDs,
             disabledOAuthProviderKeys: disabledProviders,
             zaiAPIKeys: zaiApiKeys,
+            miniMaxAPIKeys: miniMaxApiKeys,
             customProviderAuthRecords: customAuthRecords.map {
                 ConfigProviderAuthRecord(
                     providerID: $0.providerID,
@@ -868,7 +891,13 @@ class ServerManager: ObservableObject {
                 baseConfigRoot: baseConfig.root,
                 enabledProviderStates: enabledProviderStates
             ),
-            managedZAIProviderName: ProviderCatalog.managedZAIProviderName
+            includeManagedMiniMaxProvider: isProviderEnabled(
+                ProviderCatalog.managedMiniMaxProviderName,
+                baseConfigRoot: baseConfig.root,
+                enabledProviderStates: enabledProviderStates
+            ),
+            managedZAIProviderName: ProviderCatalog.managedZAIProviderName,
+            managedMiniMaxProviderName: ProviderCatalog.managedMiniMaxProviderName
         )
         
         let mergedConfigPath = authDir.appendingPathComponent(CustomProviderConstants.mergedConfigFilename)
@@ -1050,6 +1079,14 @@ class ServerManager: ObservableObject {
         let loadResult = zaiAPIKeyStore.loadActiveAPIKeys()
         for issue in loadResult.issues {
             NSLog("[ServerManager] Ignoring Z.AI API key file at %@: %@", issue.filePath.path, issue.message)
+        }
+        return loadResult.apiKeys
+    }
+
+    private func loadMiniMaxAPIKeys() -> [String] {
+        let loadResult = miniMaxAPIKeyStore.loadActiveAPIKeys()
+        for issue in loadResult.issues {
+            NSLog("[ServerManager] Ignoring MiniMax API key file at %@: %@", issue.filePath.path, issue.message)
         }
         return loadResult.apiKeys
     }
