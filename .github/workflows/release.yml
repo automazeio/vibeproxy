@@ -251,9 +251,55 @@ jobs:
             sparkle_length_${{ matrix.arch }}.txt
           retention-days: 1
 
+  build-linux-packages:
+    name: Build Linux Packages (${{ matrix.arch }})
+    needs: get-cliproxy-version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Get version from tag
+        id: get_version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+          else
+            VERSION=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "0.0.0")
+          fi
+          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Build .deb and .rpm
+        env:
+          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ steps.get_version.outputs.VERSION }}
+          CLIPROXY_VERSION: ${{ needs.get-cliproxy-version.outputs.version }}
+        run: |
+          chmod +x scripts/package-linux.sh
+          scripts/package-linux.sh
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vibeproxy-linux-${{ matrix.arch }}
+          path: |
+            dist/VibeProxy-linux-${{ matrix.arch }}.deb
+            dist/VibeProxy-linux-${{ matrix.arch }}.rpm
+            dist/VibeProxy-linux-${{ matrix.arch }}.sha256
+          retention-days: 1
+
   release:
     name: Create Release
-    needs: [get-cliproxy-version, build-signed]
+    needs: [get-cliproxy-version, build-signed, build-linux-packages]
     runs-on: macos-14
     if: startsWith(github.ref, 'refs/tags/')
 
@@ -279,6 +325,8 @@ jobs:
           mkdir -p release
           cp artifacts/vibeproxy-arm64/* release/
           cp artifacts/vibeproxy-x86_64/* release/
+          cp artifacts/vibeproxy-linux-amd64/* release/
+          cp artifacts/vibeproxy-linux-arm64/* release/
           ls -la release/
 
       - name: Download Sparkle signatures
@@ -371,7 +419,7 @@ jobs:
           git push origin main
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             release/VibeProxy-arm64.zip
@@ -382,6 +430,12 @@ jobs:
             release/VibeProxy-x86_64.zip.sha256
             release/VibeProxy-x86_64.dmg
             release/VibeProxy-x86_64.dmg.sha256
+            release/VibeProxy-linux-amd64.deb
+            release/VibeProxy-linux-amd64.rpm
+            release/VibeProxy-linux-amd64.sha256
+            release/VibeProxy-linux-arm64.deb
+            release/VibeProxy-linux-arm64.rpm
+            release/VibeProxy-linux-arm64.sha256
           draft: false
           prerelease: false
           generate_release_notes: true
@@ -395,14 +449,26 @@ jobs:
             | **Apple Silicon** (M1/M2/M3) | `VibeProxy-arm64.dmg` | `VibeProxy-arm64.zip` |
             | **Intel** (x86_64) ⚠️ | `VibeProxy-x86_64.dmg` | `VibeProxy-x86_64.zip` |
 
+            | Linux Architecture | DEB | RPM |
+            |--------------------|-----|-----|
+            | **amd64** | `VibeProxy-linux-amd64.deb` | `VibeProxy-linux-amd64.rpm` |
+            | **arm64** | `VibeProxy-linux-arm64.deb` | `VibeProxy-linux-arm64.rpm` |
+
             > ⚠️ **Intel build is untested** - Please report if it works for you!
 
             ### Installation
 
-            1. Download the appropriate file for your Mac
+            1. Download the appropriate file for your platform
             2. For DMG: Mount and drag to Applications
             3. For ZIP: Extract and drag to Applications
             4. Double-click to launch
+
+            Linux packages install `/usr/bin/vibeproxy` and an optional user service:
+
+            ```bash
+            systemctl --user daemon-reload
+            systemctl --user enable --now vibeproxy.service
+            ```
 
             ### What's New
 
@@ -410,10 +476,11 @@ jobs:
 
             ### Verification
 
-            This release is **code signed** with Apple Developer ID and includes SHA-256 checksums.
+            macOS artifacts are code signed with Apple Developer ID. Linux packages are unsigned and include SHA-256 checksums.
 
             ```bash
             shasum -a 256 -c VibeProxy-arm64.zip.sha256
+            sha256sum -c VibeProxy-linux-amd64.sha256
             ```
 
             ---

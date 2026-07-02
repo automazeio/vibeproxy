@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+binary="${VIBEPROXY_BINARY:-/usr/lib/vibeproxy/cli-proxy-api-plus}"
+config="${VIBEPROXY_CONFIG:-/etc/vibeproxy/config.yaml}"
+
+case "${1:-}" in
+  "" | serve)
+    [[ "${1:-}" == "serve" ]] && shift
+    exec "$binary" --config "$config" "$@"
+    ;;
+  --help | -h | version | --version)
+    exec "$binary" "$@"
+    ;;
+  -*)
+    exec "$binary" --config "$config" "$@"
+    ;;
+  *)
+    exec "$binary" "$@"
+    ;;
+esac

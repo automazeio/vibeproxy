@@ -1,0 +1,39 @@
+# VibeProxy for Linux
+
+This package installs the CLIProxyAPI backend used by VibeProxy and a thin
+Linux wrapper. It is a Linux CLI/backend package, not a port of the macOS menu
+bar UI.
+
+## Files
+
+- `/usr/bin/vibeproxy` starts the proxy with `/etc/vibeproxy/config.yaml`.
+- `/etc/vibeproxy/config.yaml` is the default configuration.
+- `/usr/lib/vibeproxy/cli-proxy-api-plus` is the bundled upstream proxy binary.
+- `/usr/lib/systemd/user/vibeproxy.service` is an optional user service.
+
+## Run
+
+```sh
+vibeproxy
+```
+
+The proxy listens on `127.0.0.1:8318` by default and stores credentials in
+`~/.cli-proxy-api`.
+
+Do not store provider secrets in `/etc/vibeproxy/config.yaml`; keep them in the
+per-user `~/.cli-proxy-api` files used by CLIProxyAPI.
+
+To run it as a user service:
+
+```sh
+systemctl --user daemon-reload
+systemctl --user enable --now vibeproxy.service
+```
+
+Provider login commands are forwarded to the bundled proxy. For example:
+
+```sh
+vibeproxy -claude-login
+vibeproxy -codex-login
+vibeproxy -login
+```

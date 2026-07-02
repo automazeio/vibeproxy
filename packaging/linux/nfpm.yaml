@@ -1,0 +1,36 @@
+name: vibeproxy
+arch: ${NFPM_ARCH}
+platform: linux
+version: ${VERSION}
+release: ${RELEASE}
+section: net
+priority: optional
+maintainer: Automaze <support@automaze.io>
+description: Local proxy for using AI subscriptions with coding tools.
+vendor: Automaze
+homepage: https://github.com/automazeio/vibeproxy
+license: MIT
+depends:
+  - ca-certificates
+contents:
+  - src: __LINUX_PACKAGE_ROOT__/usr/bin/vibeproxy
+    dst: /usr/bin/vibeproxy
+    file_info:
+      mode: 0755
+  - src: __LINUX_PACKAGE_ROOT__/usr/lib/vibeproxy/cli-proxy-api-plus
+    dst: /usr/lib/vibeproxy/cli-proxy-api-plus
+    file_info:
+      mode: 0755
+  - src: src/Sources/Resources/config.yaml
+    dst: /etc/vibeproxy/config.yaml
+    type: config|noreplace
+    file_info:
+      mode: 0644
+  - src: packaging/linux/vibeproxy.service
+    dst: /usr/lib/systemd/user/vibeproxy.service
+    file_info:
+      mode: 0644
+  - src: packaging/linux/README.linux
+    dst: /usr/share/doc/vibeproxy/README.linux
+    file_info:
+      mode: 0644

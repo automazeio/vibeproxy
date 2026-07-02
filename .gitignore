@@ -12,6 +12,9 @@ xcuserdata/
 *.app
 *.zip
 *.dmg
+dist/
+build/linux/
+.cache/linux-packaging/
 
 # macOS
 .DS_Store

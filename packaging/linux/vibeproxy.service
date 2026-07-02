@@ -1,0 +1,20 @@
+[Unit]
+Description=VibeProxy local AI proxy
+Documentation=https://github.com/automazeio/vibeproxy
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/vibeproxy serve
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=%h/.cli-proxy-api
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=default.target

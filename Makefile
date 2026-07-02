@@ -1,4 +1,4 @@
-.PHONY: build app install clean run help
+.PHONY: build app install package-linux clean run help
 
 help: ## Show this help message
 	@echo "VibeProxy - macOS Menu Bar App"
@@ -27,6 +27,10 @@ install: app ## Build and install to /Applications
 	@cp -r "VibeProxy.app" /Applications/
 	@echo "✅ Installed to /Applications/VibeProxy.app"
 
+package-linux: ## Create Linux .deb and .rpm packages
+	@echo "📦 Creating Linux packages..."
+	@scripts/package-linux.sh
+
 run: app ## Build and run the app
 	@echo "🚀 Launching app..."
 	@open "VibeProxy.app"
@@ -38,6 +42,8 @@ clean: ## Clean build artifacts
 	@rm -rf src/Sources/Resources/cli-proxy-api
 	@rm -rf src/Sources/Resources/config.yaml
 	@rm -rf src/Sources/Resources/static
+	@rm -rf dist
+	@rm -rf build/linux
 	@echo "✅ Clean complete"
 
 test: ## Run a quick test build

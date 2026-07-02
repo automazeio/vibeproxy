@@ -1,6 +1,6 @@
 # Installing VibeProxy
 
-**⚠️ Requirements:** macOS running on **Apple Silicon only** (M1/M2/M3/M4 Macs). Intel Macs are not supported.
+**⚠️ Requirements:** macOS 13+ for the menu bar app, or Linux amd64/arm64 for the packaged proxy backend.
 
 ## Option 1: Download Pre-built Release (Recommended)
 
@@ -9,6 +9,28 @@
 1. Go to the [**Releases**](https://github.com/automazeio/vibeproxy/releases) page
 2. Download the latest `VibeProxy.zip`
 3. Extract the ZIP file
+
+### Linux packages
+
+Download the package for your architecture from the Releases page:
+
+```sh
+sudo apt install ./VibeProxy-linux-amd64.deb
+sudo dnf install ./VibeProxy-linux-amd64.rpm
+```
+
+Then run:
+
+```sh
+vibeproxy
+```
+
+Or enable the user service:
+
+```sh
+systemctl --user daemon-reload
+systemctl --user enable --now vibeproxy.service
+```
 
 ### Step 2: Install
 
@@ -83,6 +105,9 @@ make install
 
 # Clean build artifacts
 make clean
+
+# Build Linux .deb and .rpm packages
+make package-linux
 ```
 
 ### Code Signing (Optional)

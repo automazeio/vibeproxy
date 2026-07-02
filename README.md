@@ -48,16 +48,19 @@ Built on [CLIProxyAPIPlus](https://github.com/router-for-me/CLIProxyAPIPlus), it
 
 ## Installation
 
-**Requirements:** macOS 13+ (Ventura or later)
+**Requirements:** macOS 13+ (Ventura or later) for the menu bar app, or Linux amd64/arm64 for the packaged proxy backend.
 
 ### Download Pre-built Release (Recommended)
 
 1. Go to the [**Releases**](https://github.com/automazeio/vibeproxy/releases) page
-2. Download the appropriate version for your Mac:
+2. Download the appropriate version:
    - **Apple Silicon** (M1/M2/M3/M4): `VibeProxy-arm64.zip`
    - **Intel**: `VibeProxy-x86_64.zip` *(untested - please report issues)*
-3. Extract and drag `VibeProxy.app` to `/Applications`
-4. Launch VibeProxy
+   - **Linux amd64**: `VibeProxy-linux-amd64.deb` or `VibeProxy-linux-amd64.rpm`
+   - **Linux arm64**: `VibeProxy-linux-arm64.deb` or `VibeProxy-linux-arm64.rpm`
+3. macOS: Extract and drag `VibeProxy.app` to `/Applications`
+4. Linux: Install the package and run `vibeproxy`, or enable the user service with `systemctl --user enable --now vibeproxy.service`
+5. Launch VibeProxy
 
 **Code Signed & Notarized** ✅ - No Gatekeeper warnings, installs seamlessly on macOS.
 
@@ -95,7 +98,8 @@ When you click "Add Account" for Z.AI GLM:
 
 ## Requirements
 
-- macOS 13.0 (Ventura) or later
+- macOS 13.0 (Ventura) or later for the menu bar app
+- Linux amd64 or arm64 for the packaged CLIProxyAPI backend
 
 ## Development
 
