@@ -45,3 +45,63 @@ quota-exceeded:
 
 # No API keys needed for OAuth-based providers
 generative-language-api-key: []
+
+# ─────────────────────────────────────────────────────────
+# Command Code provider (api.commandcode.ai)
+# Routed through commandcode-proxy translation shim at localhost:8399
+# ─────────────────────────────────────────────────────────
+openai-compatibility:
+  - name: commandcode
+    display-name: Command Code
+    base-url: http://127.0.0.1:8399
+    help-text: "AI model aggregator — Claude, GPT, Gemini, DeepSeek, Qwen, Kimi, GLM & more. Get your API key at https://commandcode.ai"
+    icon-system: cpu.fill
+    models:
+      - name: claude-opus-4-7
+        alias: "CC: Opus 4.7"
+      - name: claude-opus-4-6
+        alias: "CC: Opus 4.6"
+      - name: claude-sonnet-4-6
+        alias: "CC: Sonnet 4.6"
+      - name: claude-haiku-4-5-20251001
+        alias: "CC: Haiku 4.5"
+      - name: gpt-5.5
+        alias: "CC: GPT-5.5"
+      - name: gpt-5.4
+        alias: "CC: GPT-5.4"
+      - name: gpt-5.3-codex
+        alias: "CC: GPT-5.3 Codex"
+      - name: gpt-5.4-mini
+        alias: "CC: GPT-5.4 Mini"
+      - name: google/gemini-3.5-flash
+        alias: "CC: Gemini 3.5 Flash"
+      - name: google/gemini-3.1-flash-lite
+        alias: "CC: Gemini 3.1 Flash"
+      - name: deepseek/deepseek-v4-pro
+        alias: "CC: DeepSeek V4 Pro"
+      - name: deepseek/deepseek-v4-flash
+        alias: "CC: DeepSeek V4 Flash"
+      - name: moonshotai/Kimi-K2.6
+        alias: "CC: Kimi K2.6"
+      - name: moonshotai/Kimi-K2.5
+        alias: "CC: Kimi K2.5"
+      - name: Qwen/Qwen3.7-Max
+        alias: "CC: Qwen 3.7 Max"
+      - name: Qwen/Qwen3.6-Max-Preview
+        alias: "CC: Qwen 3.6 Max"
+      - name: Qwen/Qwen3.6-Plus
+        alias: "CC: Qwen 3.6 Plus"
+      - name: zai-org/GLM-5.1
+        alias: "CC: GLM 5.1"
+      - name: zai-org/GLM-5
+        alias: "CC: GLM 5"
+      - name: stepfun/Step-3.5-Flash
+        alias: "CC: Step 3.5 Flash"
+      - name: MiniMaxAI/MiniMax-M2.7
+        alias: "CC: MiniMax M2.7"
+      - name: MiniMaxAI/MiniMax-M2.5
+        alias: "CC: MiniMax M2.5"
+      - name: xiaomi/mimo-v2.5-pro
+        alias: "CC: MiMo V2.5 Pro"
+      - name: xiaomi/mimo-v2.5
+        alias: "CC: MiMo V2.5"
