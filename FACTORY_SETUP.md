@@ -68,280 +68,283 @@ Once VibeProxy is running:
 
 ## Step 3: Configure Factory CLI
 
-Edit your Factory configuration file at `~/.factory/config.json` (if the file doesn't exist, create it):
+Add the following `customModels` array to `~/.factory/settings.json` (create the file if it doesn't exist, or merge the array into your existing settings):
+
+> [!NOTE]
+> Factory's current BYOK documentation uses `settings.json` with camelCase field names for custom models. The legacy `~/.factory/config.json` format with snake_case fields is still supported for backward compatibility, but `settings.json` takes precedence when both files define the same setting. See Factory's [Bring Your Own Key documentation](https://docs.factory.ai/cli/byok/overview) for the current configuration reference.
 
 ```json
 {
-  "custom_models": [
+  "customModels": [
     {
-      "model_display_name": "CC: Opus 4.7 (High)",
+      "displayName": "CC: Opus 4.7 (High)",
       "model": "claude-opus-4-7-thinking-32000",
-      "base_url": "http://localhost:8317",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317",
+      "apiKey": "dummy-not-used",
       "provider": "anthropic"
     },
     {
-      "model_display_name": "CC: Opus 4.7 (Medium)",
+      "displayName": "CC: Opus 4.7 (Medium)",
       "model": "claude-opus-4-7-thinking-10000",
-      "base_url": "http://localhost:8317",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317",
+      "apiKey": "dummy-not-used",
       "provider": "anthropic"
     },
     {
-      "model_display_name": "CC: Opus 4.7 (Low)",
+      "displayName": "CC: Opus 4.7 (Low)",
       "model": "claude-opus-4-7-thinking-4000",
-      "base_url": "http://localhost:8317",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317",
+      "apiKey": "dummy-not-used",
       "provider": "anthropic"
     },
     {
-      "model_display_name": "CC: Opus 4.7",
+      "displayName": "CC: Opus 4.7",
       "model": "claude-opus-4-7",
-      "base_url": "http://localhost:8317",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317",
+      "apiKey": "dummy-not-used",
       "provider": "anthropic"
     },    
     {
-      "model_display_name": "CC: Sonnet 4.6",
+      "displayName": "CC: Sonnet 4.6",
       "model": "claude-sonnet-4-6",
-      "base_url": "http://localhost:8317",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317",
+      "apiKey": "dummy-not-used",
       "provider": "anthropic"
     },
     {
-      "model_display_name": "CC: Sonnet 4.6 (Low)",
+      "displayName": "CC: Sonnet 4.6 (Low)",
       "model": "claude-sonnet-4-6-thinking-4000",
-      "base_url": "http://localhost:8317",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317",
+      "apiKey": "dummy-not-used",
       "provider": "anthropic"
     },
     {
-      "model_display_name": "CC: Sonnet 4.6 (Medium)",
+      "displayName": "CC: Sonnet 4.6 (Medium)",
       "model": "claude-sonnet-4-6-thinking-10000",
-      "base_url": "http://localhost:8317",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317",
+      "apiKey": "dummy-not-used",
       "provider": "anthropic"
     },
     {
-      "model_display_name": "CC: Sonnet 4.6 (High)",
+      "displayName": "CC: Sonnet 4.6 (High)",
       "model": "claude-sonnet-4-6-thinking-32000",
-      "base_url": "http://localhost:8317",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317",
+      "apiKey": "dummy-not-used",
       "provider": "anthropic"
     },
 
     {
-      "model_display_name": "AG: Opus 4.6 Thinking",
+      "displayName": "AG: Opus 4.6 Thinking",
       "model": "gemini-claude-opus-4-6-thinking",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317/v1",
+      "apiKey": "dummy-not-used",
       "provider": "openai"
     },
     {
-      "model_display_name": "AG: Sonnet 4.6 Thinking",
+      "displayName": "AG: Sonnet 4.6 Thinking",
       "model": "gemini-claude-sonnet-4-6-thinking",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317/v1",
+      "apiKey": "dummy-not-used",
       "provider": "openai"
     },
     {
-      "model_display_name": "AG: Sonnet 4.6",
+      "displayName": "AG: Sonnet 4.6",
       "model": "gemini-claude-sonnet-4-6",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317/v1",
+      "apiKey": "dummy-not-used",
       "provider": "openai"
     },
 
     {
-      "model_display_name": "GH: Opus 4.6 (via Copilot)",
+      "displayName": "GH: Opus 4.6 (via Copilot)",
       "model": "claude-opus-4.6",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317/v1",
+      "apiKey": "dummy-not-used",
       "provider": "openai"
     },
     {
-      "model_display_name": "GH: Sonnet 4.6 (via Copilot)",
+      "displayName": "GH: Sonnet 4.6 (via Copilot)",
       "model": "claude-sonnet-4.6",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317/v1",
+      "apiKey": "dummy-not-used",
       "provider": "openai"
     },
     {
-      "model_display_name": "GH: Haiku 4.5 (via Copilot)",
+      "displayName": "GH: Haiku 4.5 (via Copilot)",
       "model": "claude-haiku-4.5",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317/v1",
+      "apiKey": "dummy-not-used",
       "provider": "openai"
     },
     {
-      "model_display_name": "GH: GPT-5.3-Codex (via Copilot)",
+      "displayName": "GH: GPT-5.3-Codex (via Copilot)",
       "model": "gpt-5.3-codex",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317/v1",
+      "apiKey": "dummy-not-used",
       "provider": "openai"
     },
     {
-      "model_display_name": "GH: Gemini 3.1 Pro (via Copilot)",
+      "displayName": "GH: Gemini 3.1 Pro (via Copilot)",
       "model": "gemini-3.1-pro-preview",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317/v1",
+      "apiKey": "dummy-not-used",
       "provider": "openai"
     },
 
     {
-      "model_display_name": "GPT-5.3 Codex",
+      "displayName": "GPT-5.3 Codex",
       "model": "gpt-5.3-codex",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317/v1",
+      "apiKey": "dummy-not-used",
       "provider": "openai"
     },
     {
-      "model_display_name": "GPT-5.3 Codex (High)",
+      "displayName": "GPT-5.3 Codex (High)",
       "model": "gpt-5.3-codex(high)",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317/v1",
+      "apiKey": "dummy-not-used",
       "provider": "openai"
     },
     {
-      "model_display_name": "GPT-5.3 Codex Spark",
+      "displayName": "GPT-5.3 Codex Spark",
       "model": "gpt-5.3-codex-spark",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317/v1",
+      "apiKey": "dummy-not-used",
       "provider": "openai"
     },
     {
-      "model_display_name": "GPT-5.5",
+      "displayName": "GPT-5.5",
       "model": "gpt-5.5",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317/v1",
+      "apiKey": "dummy-not-used",
       "provider": "openai"
     },
     {
-      "model_display_name": "GPT-5.5 (Low)",
+      "displayName": "GPT-5.5 (Low)",
       "model": "gpt-5.5(low)",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317/v1",
+      "apiKey": "dummy-not-used",
       "provider": "openai"
     },
     {
-      "model_display_name": "GPT-5.5 (High)",
+      "displayName": "GPT-5.5 (High)",
       "model": "gpt-5.5(high)",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317/v1",
+      "apiKey": "dummy-not-used",
       "provider": "openai"
     },
     {
-      "model_display_name": "GPT-5.4",
+      "displayName": "GPT-5.4",
       "model": "gpt-5.4",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317/v1",
+      "apiKey": "dummy-not-used",
       "provider": "openai"
     },
     {
-      "model_display_name": "GPT-5.4 (High)",
+      "displayName": "GPT-5.4 (High)",
       "model": "gpt-5.4(high)",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317/v1",
+      "apiKey": "dummy-not-used",
       "provider": "openai"
     },
     {
-      "model_display_name": "GPT-5.4 Mini",
+      "displayName": "GPT-5.4 Mini",
       "model": "gpt-5.4-mini",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317/v1",
+      "apiKey": "dummy-not-used",
       "provider": "openai"
     },
     {
-      "model_display_name": "GPT-5.4 Mini (High)",
+      "displayName": "GPT-5.4 Mini (High)",
       "model": "gpt-5.4-mini(high)",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317/v1",
+      "apiKey": "dummy-not-used",
       "provider": "openai"
     },
     {
-      "model_display_name": "Gemini 3.1 Pro",
+      "displayName": "Gemini 3.1 Pro",
       "model": "gemini-3.1-pro-preview",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317/v1",
+      "apiKey": "dummy-not-used",
       "provider": "openai"
     },
     {
-      "model_display_name": "Gemini 3.1 Flash Image",
+      "displayName": "Gemini 3.1 Flash Image",
       "model": "gemini-3.1-flash-image-preview",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317/v1",
+      "apiKey": "dummy-not-used",
       "provider": "openai"
     },
     {
-      "model_display_name": "Gemini 2.5 Pro",
+      "displayName": "Gemini 2.5 Pro",
       "model": "gemini-2.5-pro",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317/v1",
+      "apiKey": "dummy-not-used",
       "provider": "openai"
     },
     {
-      "model_display_name": "Gemini 2.5 Flash",
+      "displayName": "Gemini 2.5 Flash",
       "model": "gemini-2.5-flash",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317/v1",
+      "apiKey": "dummy-not-used",
       "provider": "openai"
     },
     {
-      "model_display_name": "Gemini 2.5 Flash Lite",
+      "displayName": "Gemini 2.5 Flash Lite",
       "model": "gemini-2.5-flash-lite",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317/v1",
+      "apiKey": "dummy-not-used",
       "provider": "openai"
     },
 
     {
-      "model_display_name": "Qwen3 Coder Plus",
+      "displayName": "Qwen3 Coder Plus",
       "model": "qwen3-coder-plus",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317/v1",
+      "apiKey": "dummy-not-used",
       "provider": "openai"
     },
     {
-      "model_display_name": "Qwen3 Coder Flash",
+      "displayName": "Qwen3 Coder Flash",
       "model": "qwen3-coder-flash",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317/v1",
+      "apiKey": "dummy-not-used",
       "provider": "openai"
     },
 
     {
-      "model_display_name": "GLM-5",
+      "displayName": "GLM-5",
       "model": "glm-5",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317/v1",
+      "apiKey": "dummy-not-used",
       "provider": "openai"
     },
     {
-      "model_display_name": "GLM-4.7",
+      "displayName": "GLM-4.7",
       "model": "glm-4.7",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317/v1",
+      "apiKey": "dummy-not-used",
       "provider": "openai"
     },
     {
-      "model_display_name": "GLM-4-Plus",
+      "displayName": "GLM-4-Plus",
       "model": "glm-4-plus",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317/v1",
+      "apiKey": "dummy-not-used",
       "provider": "openai"
     },
     {
-      "model_display_name": "GLM-4-Air",
+      "displayName": "GLM-4-Air",
       "model": "glm-4-air",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317/v1",
+      "apiKey": "dummy-not-used",
       "provider": "openai"
     },
     {
-      "model_display_name": "GLM-4-Flash",
+      "displayName": "GLM-4-Flash",
       "model": "glm-4-flash",
-      "base_url": "http://localhost:8317/v1",
-      "api_key": "dummy-not-used",
+      "baseUrl": "http://localhost:8317/v1",
+      "apiKey": "dummy-not-used",
       "provider": "openai"
     }
   ]
@@ -392,7 +395,7 @@ If you have a GitHub Copilot subscription, VibeProxy can route requests through 
 - `gemini-3.1-pro-preview` - Gemini 3.1 Pro (1x rate)
 
 > [!NOTE]
-> Copilot model names use **dot-notation** (`claude-opus-4.6`) while Claude Code subscription models use dash-notation (`claude-opus-4-7`). Both work through VibeProxy but route through different auth backends. Use `provider: "openai"` and `base_url` with `/v1` for Copilot models.
+> Copilot model names use **dot-notation** (`claude-opus-4.6`) while Claude Code subscription models use dash-notation (`claude-opus-4-7`). Both work through VibeProxy but route through different auth backends. Use `provider: "openai"` and `baseUrl` with `/v1` for Copilot models.
 
 **Discovering new model names:** Run `copilot --help` and check the `--model` option for the current list of available models.
 
@@ -604,6 +607,7 @@ VibeProxy is built on top of [CLIProxyAPI](https://github.com/router-for-me/CLIP
 
 - **CLIProxyAPI**: [https://github.com/router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)
 - **Factory CLI**: [https://docs.factory.ai/cli](https://docs.factory.ai/cli)
+- **Factory BYOK configuration**: [https://docs.factory.ai/cli/byok/overview](https://docs.factory.ai/cli/byok/overview)
 - **Original Setup Guide**: [https://gist.github.com/ben-vargas/9f1a14ac5f78d10eba56be437b7c76e5](https://gist.github.com/ben-vargas/9f1a14ac5f78d10eba56be437b7c76e5)
 
 ---
