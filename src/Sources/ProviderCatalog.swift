@@ -11,10 +11,13 @@ enum ProviderCatalog {
         "kimi": "kimi",
         "github-copilot": "github-copilot",
         "antigravity": "antigravity",
-        "qwen": "qwen"
+        "qwen": "qwen",
+        "xai": "xai"
     ]
 
+    // xAI was previously available as an OpenAI-compatible custom provider.
     static let reservedCustomProviderKeys = Set(oauthProviderKeys.keys)
         .union(oauthProviderKeys.values)
         .union([managedZAIProviderName])
+        .subtracting(Set(["xai"]))
 }

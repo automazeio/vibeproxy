@@ -520,7 +520,6 @@ struct SettingsView: View {
     @State private var zaiApiKey = ""
     @State private var selectedCustomProvider: CustomProviderDefinition?
     @State private var customProviderApiKey = ""
-    @State private var expandedRowCount = 0
     
     private enum Timing {
         static let serverRestartDelay: TimeInterval = 0.3
@@ -597,8 +596,7 @@ struct SettingsView: View {
                         onConnect: { connectService(.antigravity) },
                         onDisconnect: { account in disconnectAccount(account) },
                         onToggleDisabled: { account in toggleAccountDisabled(account) },
-                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("antigravity", enabled: enabled) },
-                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("antigravity", enabled: enabled) }
                     ) { EmptyView() }
 
                     ServiceRow(
@@ -616,8 +614,7 @@ struct SettingsView: View {
                         onConnect: { connectService(.claude) },
                         onDisconnect: { account in disconnectAccount(account) },
                         onToggleDisabled: { account in toggleAccountDisabled(account) },
-                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("claude", enabled: enabled) },
-                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("claude", enabled: enabled) }
                     ) {
                         VercelGatewayControls(serverManager: serverManager)
                     }
@@ -637,8 +634,7 @@ struct SettingsView: View {
                         onConnect: { connectService(.codex) },
                         onDisconnect: { account in disconnectAccount(account) },
                         onToggleDisabled: { account in toggleAccountDisabled(account) },
-                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("codex", enabled: enabled) },
-                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("codex", enabled: enabled) }
                     ) { EmptyView() }
 
                     ServiceRow(
@@ -656,8 +652,7 @@ struct SettingsView: View {
                         onConnect: { connectService(.gemini) },
                         onDisconnect: { account in disconnectAccount(account) },
                         onToggleDisabled: { account in toggleAccountDisabled(account) },
-                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("gemini", enabled: enabled) },
-                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("gemini", enabled: enabled) }
                     ) { EmptyView() }
 
                     ServiceRow(
@@ -675,8 +670,7 @@ struct SettingsView: View {
                         onConnect: { connectService(.kimi) },
                         onDisconnect: { account in disconnectAccount(account) },
                         onToggleDisabled: { account in toggleAccountDisabled(account) },
-                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("kimi", enabled: enabled) },
-                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("kimi", enabled: enabled) }
                     ) { EmptyView() }
 
                     ServiceRow(
@@ -694,8 +688,7 @@ struct SettingsView: View {
                         onConnect: { connectService(.copilot) },
                         onDisconnect: { account in disconnectAccount(account) },
                         onToggleDisabled: { account in toggleAccountDisabled(account) },
-                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("github-copilot", enabled: enabled) },
-                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("github-copilot", enabled: enabled) }
                     ) { EmptyView() }
 
                     ServiceRow(
@@ -713,8 +706,25 @@ struct SettingsView: View {
                         onConnect: { showingQwenEmailPrompt = true },
                         onDisconnect: { account in disconnectAccount(account) },
                         onToggleDisabled: { account in toggleAccountDisabled(account) },
-                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("qwen", enabled: enabled) },
-                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("qwen", enabled: enabled) }
+                    ) { EmptyView() }
+
+                    ServiceRow(
+                        serviceType: .xai,
+                        iconName: "icon-xai.png",
+                        iconSystemName: "sparkles",
+                        accounts: authManager.accounts(for: .xai),
+                        isAuthenticating: authenticatingService == .xai,
+                        helpText: "xAI provides OAuth-based access to Grok models through your Grok account.",
+                        isEnabled: serverManager.isProviderEnabled("xai"),
+                        isToggleLocked: serverManager.isProviderToggleLocked("xai"),
+                        toggleHelpText: serverManager.providerConfigLockReason("xai"),
+                        disabledReasonText: serverManager.providerConfigLockReason("xai"),
+                        customTitle: nil,
+                        onConnect: { connectService(.xai) },
+                        onDisconnect: { account in disconnectAccount(account) },
+                        onToggleDisabled: { account in toggleAccountDisabled(account) },
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("xai", enabled: enabled) }
                     ) { EmptyView() }
 
                     ServiceRow(
@@ -732,8 +742,7 @@ struct SettingsView: View {
                         onConnect: { showingZaiApiKeyPrompt = true },
                         onDisconnect: { account in disconnectAccount(account) },
                         onToggleDisabled: { account in toggleAccountDisabled(account) },
-                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("zai", enabled: enabled) },
-                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("zai", enabled: enabled) }
                     ) { EmptyView() }
                 }
                 
@@ -757,9 +766,6 @@ struct SettingsView: View {
                                 },
                                 onToggleEnabled: { enabled in
                                     serverManager.setProviderEnabled(provider.id, enabled: enabled)
-                                },
-                                onExpandChange: { expanded in
-                                    expandedRowCount += expanded ? 1 : -1
                                 }
                             )
                         }
@@ -767,7 +773,6 @@ struct SettingsView: View {
                 }
             }
             .formStyle(.grouped)
-            .scrollDisabled(expandedRowCount == 0)
 
             Spacer()
                 .frame(height: 6)
@@ -1012,6 +1017,8 @@ struct SettingsView: View {
             return "🌐 Browser opened for Qwen authentication.\n\nPlease complete the login in your browser."
         case .antigravity:
             return "🌐 Browser opened for Antigravity authentication.\n\nPlease complete the login in your browser."
+        case .xai:
+            return "🌐 Browser opened for xAI / Grok authentication.\n\nPlease complete the login in your browser.\n\nThe app will automatically detect your account."
         case .zai:
             return "✓ Z.AI API key added successfully.\n\nYou can now use GLM models through the proxy."
         }
