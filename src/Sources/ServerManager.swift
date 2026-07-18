@@ -391,6 +391,8 @@ class ServerManager: ObservableObject {
             qwenEmail = email
         case .antigravityLogin:
             authProcess.arguments = ["--config", configPath, "-antigravity-login"]
+        case .xaiLogin:
+            authProcess.arguments = ["--config", configPath, "--xai-login"]
         }
         
         // Create pipes for output
@@ -586,6 +588,7 @@ class ServerManager: ObservableObject {
             "cli-proxy-api-plus.*-github-copilot-login",
             "cli-proxy-api-plus.*-qwen-login",
             "cli-proxy-api-plus.*-antigravity-login",
+            "cli-proxy-api-plus.*-xai-login",
             "cli-proxy-api-plus.* -login"
         ]
 
@@ -1238,4 +1241,5 @@ enum AuthCommand: Equatable {
     case kimiLogin
     case qwenLogin(email: String)
     case antigravityLogin
+    case xaiLogin
 }
