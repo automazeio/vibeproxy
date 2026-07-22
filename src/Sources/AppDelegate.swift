@@ -6,10 +6,11 @@ import Sparkle
 
 class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNotificationCenterDelegate {
     var statusItem: NSStatusItem!
-    var menu: NSMenu!
     weak var settingsWindow: NSWindow?
     var serverManager: ServerManager!
     var thinkingProxy: ThinkingProxy!
+    var authManager: AuthManager!
+    private var statusPopover: NSPopover!
     private let notificationCenter = UNUserNotificationCenter.current()
     private var notificationPermissionGranted = false
     private let updaterController: SPUStandardUpdaterController
@@ -28,12 +29,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
         // Setup standard Edit menu for keyboard shortcuts (Cmd+C/V/X/A)
         setupMainMenu()
         
-        // Setup menu bar
-        setupMenuBar()
-
         // Initialize managers
         serverManager = ServerManager()
         thinkingProxy = ThinkingProxy()
+        authManager = AuthManager()
+        authManager.checkAuthStatus()
+        serverManager.quotaStore.startMonitoring(authManager: authManager, serverManager: serverManager)
+
+        setupMenuBar()
+        setupStatusPopover()
 
         // Sync Vercel AI Gateway config from ServerManager to ThinkingProxy
         syncVercelConfig()
@@ -136,6 +140,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
         if let button = statusItem.button {
             button.imagePosition = .imageOnly
             button.toolTip = "VibeProxy"
+            button.target = self
+            button.action = #selector(toggleStatusPopover)
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             if let icon = IconCatalog.shared.image(named: "icon-inactive.png", resizedTo: NSSize(width: 18, height: 18), template: true) {
                 button.image = icon
             } else {
@@ -146,51 +153,40 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
             }
         }
 
-        menu = NSMenu()
-
-        // Server Status
-        menu.addItem(NSMenuItem(title: "Server: Stopped", action: nil, keyEquivalent: ""))
-        menu.addItem(NSMenuItem.separator())
-
-        // Main Actions
-        menu.addItem(NSMenuItem(title: "Open Settings", action: #selector(openSettings), keyEquivalent: "s"))
-        menu.addItem(NSMenuItem.separator())
-
-        // Server Control
-        let startStopItem = NSMenuItem(title: "Start Server", action: #selector(toggleServer), keyEquivalent: "")
-        startStopItem.tag = 100
-        menu.addItem(startStopItem)
-
-        menu.addItem(NSMenuItem.separator())
-
-        // Copy URL
-        let copyURLItem = NSMenuItem(title: "Copy Server URL", action: #selector(copyServerURL), keyEquivalent: "c")
-        copyURLItem.isEnabled = false
-        copyURLItem.tag = 102
-        menu.addItem(copyURLItem)
-
-        // Open Dashboard
-        let dashboardItem = NSMenuItem(title: "Open Dashboard", action: #selector(openDashboard), keyEquivalent: "d")
-        dashboardItem.isEnabled = false
-        dashboardItem.tag = 103
-        menu.addItem(dashboardItem)
-
-        menu.addItem(NSMenuItem.separator())
-
-        // Check for Updates
-        let checkForUpdatesItem = NSMenuItem(title: "Check for Updates...", action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)), keyEquivalent: "u")
-        checkForUpdatesItem.target = updaterController
-        menu.addItem(checkForUpdatesItem)
-
-        menu.addItem(NSMenuItem.separator())
-
-        // Quit
-        menu.addItem(NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q"))
-
-        statusItem.menu = menu
     }
 
+    private func setupStatusPopover() {
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = true
+        let hostingController = NSHostingController(rootView: MenuBarPopoverView(
+            serverManager: serverManager,
+            authManager: authManager,
+            proxyPort: thinkingProxy.proxyPort,
+            onToggleServer: { [weak self] in self?.toggleServer() },
+            onOpenSettings: { [weak self] in
+                self?.statusPopover.performClose(nil)
+                self?.openSettings()
+            },
+            onCopyServerURL: { [weak self] in self?.copyServerURL() },
+            onCheckForUpdates: { [weak self] in self?.updaterController.checkForUpdates(nil) },
+            onQuit: { [weak self] in self?.quit() }
+        ))
+        hostingController.sizingOptions = [.preferredContentSize]
+        popover.contentViewController = hostingController
+        statusPopover = popover
+    }
 
+    @MainActor @objc private func toggleStatusPopover() {
+        guard let button = statusItem.button else { return }
+        if statusPopover.isShown {
+            statusPopover.performClose(nil)
+            return
+        }
+        authManager.checkAuthStatus()
+        statusPopover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        NSApp.activate(ignoringOtherApps: true)
+    }
 
     @objc func openSettings() {
         if settingsWindow == nil {
@@ -212,7 +208,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
         window.delegate = self
         window.isReleasedWhenClosed = false
 
-        let contentView = SettingsView(serverManager: serverManager)
+        let contentView = SettingsView(serverManager: serverManager, authManager: authManager)
         window.contentView = NSHostingView(rootView: contentView)
 
         settingsWindow = window
@@ -253,7 +249,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
                     } else {
                         // Backend failed - stop the proxy to keep state consistent
                         self?.thinkingProxy.stop()
-                        self?.showNotification(title: "Server Failed", body: "Could not start backend server on port 8318")
+                        self?.showNotification(title: "Server Failed", body: "Could not start backend server on port \(ProxyPorts.backend)")
                     }
                 }
             }
@@ -265,7 +261,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
             DispatchQueue.main.async { [weak self] in
                 // Clean up partially initialized proxy
                 self?.thinkingProxy.stop()
-                self?.showNotification(title: "Server Failed", body: "Could not start thinking proxy on port 8317 (timeout)")
+                self?.showNotification(title: "Server Failed", body: "Could not start thinking proxy on port \(ProxyPorts.publicAPI) (timeout)")
             }
             return
         }
@@ -295,13 +291,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
     }
 
     @objc func openDashboard() {
-        if let url = URL(string: "http://localhost:8318/management.html") {
+        if let url = URL(string: "http://localhost:\(ProxyPorts.backend)/management.html") {
             NSWorkspace.shared.open(url)
         }
     }
 
     @objc func handleAuthDirectoryChanged() {
         NSLog("[AppDelegate] Auth directory changed notification received — refreshing settings")
+        authManager.checkAuthStatus()
         serverManager.handleObservedConfigInputsChanged()
         // Re-open settings window if it exists so the user sees the new account
         if let window = settingsWindow {
@@ -311,28 +308,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
     }
 
     @objc func updateMenuBarStatus() {
-        // Update status items
-        if let serverStatus = menu.item(at: 0) {
-            serverStatus.title = serverManager.isRunning ? "Server: Running (port \(thinkingProxy.proxyPort))" : "Server: Stopped"
-        }
-
-        // Update button states
-        if let startStopItem = menu.item(withTag: 100) {
-            startStopItem.title = serverManager.isRunning ? "Stop Server" : "Start Server"
-        }
-
-        if let copyURLItem = menu.item(withTag: 102) {
-            copyURLItem.isEnabled = serverManager.isRunning
-        }
-
-        if let dashboardItem = menu.item(withTag: 103) {
-            dashboardItem.isEnabled = serverManager.isRunning
-        }
-
-        // Update icon based on server status
         if let button = statusItem.button {
             let iconName = serverManager.isRunning ? "icon-active.png" : "icon-inactive.png"
             let fallbackSymbol = serverManager.isRunning ? "network" : "network.slash"
+            button.toolTip = serverManager.isRunning
+                ? "VibeProxy running on port \(thinkingProxy.proxyPort)"
+                : "VibeProxy stopped"
             
             if let icon = IconCatalog.shared.image(named: iconName, resizedTo: NSSize(width: 18, height: 18), template: true) {
                 button.image = icon

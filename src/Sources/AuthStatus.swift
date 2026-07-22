@@ -49,13 +49,10 @@ struct AuthAccount: Identifiable, Equatable {
         return id
     }
     
-    static func == (lhs: AuthAccount, rhs: AuthAccount) -> Bool {
-        lhs.id == rhs.id
-    }
 }
 
 /// Tracks all accounts for a service type
-struct ServiceAccounts {
+struct ServiceAccounts: Equatable {
     var type: ServiceType
     var accounts: [AuthAccount] = []
     
@@ -66,6 +63,7 @@ struct ServiceAccounts {
 
 class AuthManager: ObservableObject {
     @Published var serviceAccounts: [ServiceType: ServiceAccounts] = [:]
+    private let authDirectory: URL
     
     private static let dateFormatters: [ISO8601DateFormatter] = {
         let withFractional = ISO8601DateFormatter()
@@ -75,7 +73,8 @@ class AuthManager: ObservableObject {
         return [withFractional, standard]
     }()
     
-    init() {
+    init(authDirectory: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cli-proxy-api")) {
+        self.authDirectory = authDirectory
         // Initialize empty accounts for all service types
         for type in ServiceType.allCases {
             serviceAccounts[type] = ServiceAccounts(type: type)
@@ -91,8 +90,6 @@ class AuthManager: ObservableObject {
     }
     
     func checkAuthStatus() {
-        let authDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cli-proxy-api")
-        
         // Build new accounts dictionary
         var newAccounts: [ServiceType: [AuthAccount]] = [:]
         for type in ServiceType.allCases {
@@ -100,7 +97,7 @@ class AuthManager: ObservableObject {
         }
         
         do {
-            let files = try FileManager.default.contentsOfDirectory(at: authDir, includingPropertiesForKeys: nil)
+            let files = try FileManager.default.contentsOfDirectory(at: authDirectory, includingPropertiesForKeys: nil)
             NSLog("[AuthStatus] Scanning %d files in auth directory", files.count)
             
             for file in files where file.pathExtension == "json" {
@@ -143,21 +140,23 @@ class AuthManager: ObservableObject {
                 NSLog("[AuthStatus] Found %@ auth: %@", serviceType.displayName, account.displayName)
             }
             
-            // Update on main thread
+            let updatedServiceAccounts = Dictionary(uniqueKeysWithValues: ServiceType.allCases.map { type in
+                let accounts = (newAccounts[type] ?? []).sorted { $0.id < $1.id }
+                return (type, ServiceAccounts(type: type, accounts: accounts))
+            })
+
             DispatchQueue.main.async {
-                for type in ServiceType.allCases {
-                    self.serviceAccounts[type] = ServiceAccounts(
-                        type: type,
-                        accounts: newAccounts[type] ?? []
-                    )
-                }
+                guard self.serviceAccounts != updatedServiceAccounts else { return }
+                self.serviceAccounts = updatedServiceAccounts
             }
         } catch {
             NSLog("[AuthStatus] Error checking auth status: %@", error.localizedDescription)
+            let emptyServiceAccounts = Dictionary(uniqueKeysWithValues: ServiceType.allCases.map { type in
+                (type, ServiceAccounts(type: type))
+            })
             DispatchQueue.main.async {
-                for type in ServiceType.allCases {
-                    self.serviceAccounts[type] = ServiceAccounts(type: type)
-                }
+                guard self.serviceAccounts != emptyServiceAccounts else { return }
+                self.serviceAccounts = emptyServiceAccounts
             }
         }
     }

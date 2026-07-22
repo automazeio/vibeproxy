@@ -507,7 +507,7 @@ struct CustomProviderRow: View {
 
 struct SettingsView: View {
     @ObservedObject var serverManager: ServerManager
-    @StateObject private var authManager = AuthManager()
+    @ObservedObject var authManager: AuthManager
     @State private var launchAtLogin = false
     @State private var authenticatingService: ServiceType? = nil
     @State private var authenticatingCustomProviderID: String? = nil
@@ -520,8 +520,6 @@ struct SettingsView: View {
     @State private var zaiApiKey = ""
     @State private var selectedCustomProvider: CustomProviderDefinition?
     @State private var customProviderApiKey = ""
-    @State private var expandedRowCount = 0
-    
     private enum Timing {
         static let serverRestartDelay: TimeInterval = 0.3
     }
@@ -597,8 +595,7 @@ struct SettingsView: View {
                         onConnect: { connectService(.antigravity) },
                         onDisconnect: { account in disconnectAccount(account) },
                         onToggleDisabled: { account in toggleAccountDisabled(account) },
-                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("antigravity", enabled: enabled) },
-                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("antigravity", enabled: enabled) }
                     ) { EmptyView() }
 
                     ServiceRow(
@@ -616,8 +613,7 @@ struct SettingsView: View {
                         onConnect: { connectService(.claude) },
                         onDisconnect: { account in disconnectAccount(account) },
                         onToggleDisabled: { account in toggleAccountDisabled(account) },
-                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("claude", enabled: enabled) },
-                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("claude", enabled: enabled) }
                     ) {
                         VercelGatewayControls(serverManager: serverManager)
                     }
@@ -637,8 +633,7 @@ struct SettingsView: View {
                         onConnect: { connectService(.codex) },
                         onDisconnect: { account in disconnectAccount(account) },
                         onToggleDisabled: { account in toggleAccountDisabled(account) },
-                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("codex", enabled: enabled) },
-                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("codex", enabled: enabled) }
                     ) { EmptyView() }
 
                     ServiceRow(
@@ -656,8 +651,7 @@ struct SettingsView: View {
                         onConnect: { connectService(.gemini) },
                         onDisconnect: { account in disconnectAccount(account) },
                         onToggleDisabled: { account in toggleAccountDisabled(account) },
-                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("gemini", enabled: enabled) },
-                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("gemini", enabled: enabled) }
                     ) { EmptyView() }
 
                     ServiceRow(
@@ -675,8 +669,7 @@ struct SettingsView: View {
                         onConnect: { connectService(.kimi) },
                         onDisconnect: { account in disconnectAccount(account) },
                         onToggleDisabled: { account in toggleAccountDisabled(account) },
-                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("kimi", enabled: enabled) },
-                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("kimi", enabled: enabled) }
                     ) { EmptyView() }
 
                     ServiceRow(
@@ -694,8 +687,7 @@ struct SettingsView: View {
                         onConnect: { connectService(.copilot) },
                         onDisconnect: { account in disconnectAccount(account) },
                         onToggleDisabled: { account in toggleAccountDisabled(account) },
-                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("github-copilot", enabled: enabled) },
-                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("github-copilot", enabled: enabled) }
                     ) { EmptyView() }
 
                     ServiceRow(
@@ -713,8 +705,7 @@ struct SettingsView: View {
                         onConnect: { showingQwenEmailPrompt = true },
                         onDisconnect: { account in disconnectAccount(account) },
                         onToggleDisabled: { account in toggleAccountDisabled(account) },
-                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("qwen", enabled: enabled) },
-                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("qwen", enabled: enabled) }
                     ) { EmptyView() }
 
                     ServiceRow(
@@ -732,8 +723,7 @@ struct SettingsView: View {
                         onConnect: { showingZaiApiKeyPrompt = true },
                         onDisconnect: { account in disconnectAccount(account) },
                         onToggleDisabled: { account in toggleAccountDisabled(account) },
-                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("zai", enabled: enabled) },
-                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("zai", enabled: enabled) }
                     ) { EmptyView() }
                 }
                 
@@ -757,9 +747,6 @@ struct SettingsView: View {
                                 },
                                 onToggleEnabled: { enabled in
                                     serverManager.setProviderEnabled(provider.id, enabled: enabled)
-                                },
-                                onExpandChange: { expanded in
-                                    expandedRowCount += expanded ? 1 : -1
                                 }
                             )
                         }
@@ -767,7 +754,6 @@ struct SettingsView: View {
                 }
             }
             .formStyle(.grouped)
-            .scrollDisabled(expandedRowCount == 0)
 
             Spacer()
                 .frame(height: 6)
