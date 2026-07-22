@@ -172,7 +172,7 @@ final class QuotaTests: XCTestCase {
     }
 
     @MainActor
-    func testAutomaticRefreshUsesCachedSnapshotWhileManualRefreshBypassesIt() async throws {
+    func testManualRefreshBypassesFreshnessAndHonorsCooldown() async throws {
         let authFiles = Data(#"{"files":[{"auth_index":"auth-1","name":"claude-test.json","provider":"claude"}]}"#.utf8)
         let quotaBody = #"{"limits":[{"kind":"session","percent":25,"resets_at":null}]}"#
         let wrapper = try JSONSerialization.data(withJSONObject: ["status_code": 200, "body": quotaBody])
@@ -186,6 +186,7 @@ final class QuotaTests: XCTestCase {
         let store = QuotaStore(
             client: testClient(transport: transport),
             freshnessInterval: 300,
+            manualRefreshCooldown: 60,
             now: { clock.now }
         )
         let account = AuthAccount(
@@ -208,10 +209,32 @@ final class QuotaTests: XCTestCase {
         requestCount = await transport.recordedRequests().count
         XCTAssertEqual(requestCount, 2)
 
-        store.refresh(accounts: [account], force: true)
+        store.refreshManually(accounts: [account])
         await waitForRefresh(store)
         requestCount = await transport.recordedRequests().count
         XCTAssertEqual(requestCount, 4)
+
+        store.refreshManually(accounts: [account])
+        await Task.yield()
+        requestCount = await transport.recordedRequests().count
+        XCTAssertEqual(requestCount, 4)
+    }
+
+    @MainActor
+    func testManualRefreshCooldownExpires() async {
+        let store = QuotaStore(
+            client: testClient(transport: QuotaTestTransport(responses: [])),
+            manualRefreshCooldown: 0.01
+        )
+
+        store.refreshManually(accounts: [])
+        XCTAssertTrue(store.isManualRefreshCoolingDown)
+
+        for _ in 0 ..< 100 {
+            if !store.isManualRefreshCoolingDown { return }
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
+        XCTFail("Manual refresh cooldown did not expire")
     }
 
     @MainActor

@@ -53,7 +53,12 @@ struct QuotaOverviewView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .disabled(!serverIsRunning || store.isRefreshing || accounts.isEmpty)
+                .disabled(
+                    !serverIsRunning
+                        || store.isRefreshing
+                        || store.isManualRefreshCoolingDown
+                        || accounts.isEmpty
+                )
                 .help("Refresh quotas")
             }
 
@@ -105,7 +110,7 @@ struct QuotaOverviewView: View {
     }
 
     private func refresh() {
-        store.refresh(accounts: accounts, force: true)
+        store.refreshManually(accounts: accounts)
     }
 
     private func prepareReset(_ account: AuthAccount, displayName: String) {

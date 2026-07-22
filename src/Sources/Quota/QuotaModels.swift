@@ -60,10 +60,6 @@ struct QuotaSnapshot: Equatable, Sendable {
         windows.first { $0.kind == kind }
     }
 
-    var worstWindow: QuotaWindow? {
-        windows.min { $0.remainingPercent < $1.remainingPercent }
-    }
-
     var isExhausted: Bool {
         windows.contains { $0.remainingPercent <= 0 }
     }

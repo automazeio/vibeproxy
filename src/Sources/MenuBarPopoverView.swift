@@ -8,6 +8,7 @@ struct MenuBarPopoverView: View {
     let onToggleServer: () -> Void
     let onOpenSettings: () -> Void
     let onCopyServerURL: () -> Void
+    let onOpenDashboard: () -> Void
     let onCheckForUpdates: () -> Void
     let onQuit: () -> Void
 
@@ -25,7 +26,7 @@ struct MenuBarPopoverView: View {
                         Circle()
                             .fill(serverManager.isRunning ? Color.green : Color.red)
                             .frame(width: 7, height: 7)
-                        Text(serverManager.isRunning ? "Running on port \(proxyPort)" : "Server stopped")
+                        Text(serverManager.isRunning ? "Running on port \(String(proxyPort))" : "Server stopped")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -60,14 +61,25 @@ struct MenuBarPopoverView: View {
 
             VStack(spacing: 2) {
                 MenuActionRow(title: "Open Settings", systemImage: "gearshape", action: onOpenSettings)
+                    .keyboardShortcut("s", modifiers: .command)
                 MenuActionRow(
                     title: "Copy Server URL",
                     systemImage: "doc.on.doc",
                     isEnabled: serverManager.isRunning,
                     action: onCopyServerURL
                 )
+                .keyboardShortcut("c", modifiers: .command)
+                MenuActionRow(
+                    title: "Open Dashboard",
+                    systemImage: "gauge",
+                    isEnabled: serverManager.isRunning,
+                    action: onOpenDashboard
+                )
+                .keyboardShortcut("d", modifiers: .command)
                 MenuActionRow(title: "Check for Updates", systemImage: "arrow.triangle.2.circlepath", action: onCheckForUpdates)
+                    .keyboardShortcut("u", modifiers: .command)
                 MenuActionRow(title: "Quit VibeProxy", systemImage: "power", action: onQuit)
+                    .keyboardShortcut("q", modifiers: .command)
             }
             .padding(8)
         }

@@ -14,12 +14,15 @@ extension QuotaProvider {
 final class QuotaStore: ObservableObject {
     @Published private(set) var states: [String: AccountQuotaState] = [:]
     @Published private(set) var isRefreshing = false
+    @Published private(set) var isManualRefreshCoolingDown = false
     @Published private(set) var lastUpdated: Date?
 
     private let client: CLIProxyManagementClient
     private let freshnessInterval: TimeInterval
+    private let manualRefreshCooldown: TimeInterval
     private let now: @Sendable () -> Date
     private var refreshTask: Task<Void, Never>?
+    private var manualRefreshCooldownTask: Task<Void, Never>?
     private var monitoringCancellables: Set<AnyCancellable> = []
     private var monitoredAccounts: [AuthAccount] = []
     private var monitoredServerIsRunning = false
@@ -27,10 +30,12 @@ final class QuotaStore: ObservableObject {
     init(
         client: CLIProxyManagementClient,
         freshnessInterval: TimeInterval = 300,
+        manualRefreshCooldown: TimeInterval = 15,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.client = client
         self.freshnessInterval = freshnessInterval
+        self.manualRefreshCooldown = manualRefreshCooldown
         self.now = now
     }
 
@@ -74,6 +79,23 @@ final class QuotaStore: ObservableObject {
                 self.refresh(accounts: self.monitoredAccounts)
             }
             .store(in: &monitoringCancellables)
+    }
+
+    @MainActor
+    func refreshManually(accounts: [AuthAccount]) {
+        guard !isRefreshing, !isManualRefreshCoolingDown else { return }
+
+        isManualRefreshCoolingDown = true
+        refresh(accounts: accounts, force: true)
+
+        manualRefreshCooldownTask?.cancel()
+        let cooldownNanoseconds = UInt64(max(manualRefreshCooldown, 0) * 1_000_000_000)
+        manualRefreshCooldownTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: cooldownNanoseconds)
+            guard !Task.isCancelled, let self else { return }
+            self.isManualRefreshCoolingDown = false
+            self.manualRefreshCooldownTask = nil
+        }
     }
 
     @MainActor

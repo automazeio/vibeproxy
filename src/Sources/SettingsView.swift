@@ -66,7 +66,6 @@ struct AccountRowView: View {
 /// Vercel AI Gateway controls shown in Claude expanded section
 struct VercelGatewayControls: View {
     @ObservedObject var serverManager: ServerManager
-    @State private var showingSaved = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -86,21 +85,6 @@ struct VercelGatewayControls: View {
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 220)
                         .font(.caption)
-                    
-                    if showingSaved {
-                        Text("Saved")
-                            .font(.caption)
-                            .foregroundColor(.green)
-                    } else {
-                        Button("Save") {
-                            showingSaved = true
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                                showingSaved = false
-                            }
-                        }
-                        .controlSize(.small)
-                        .disabled(serverManager.vercelApiKey.isEmpty)
-                    }
                 }
             }
         }
@@ -520,6 +504,8 @@ struct SettingsView: View {
     @State private var zaiApiKey = ""
     @State private var selectedCustomProvider: CustomProviderDefinition?
     @State private var customProviderApiKey = ""
+    @State private var expandedRowCount = 0
+
     private enum Timing {
         static let serverRestartDelay: TimeInterval = 0.3
     }
@@ -595,7 +581,8 @@ struct SettingsView: View {
                         onConnect: { connectService(.antigravity) },
                         onDisconnect: { account in disconnectAccount(account) },
                         onToggleDisabled: { account in toggleAccountDisabled(account) },
-                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("antigravity", enabled: enabled) }
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("antigravity", enabled: enabled) },
+                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
                     ) { EmptyView() }
 
                     ServiceRow(
@@ -613,7 +600,8 @@ struct SettingsView: View {
                         onConnect: { connectService(.claude) },
                         onDisconnect: { account in disconnectAccount(account) },
                         onToggleDisabled: { account in toggleAccountDisabled(account) },
-                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("claude", enabled: enabled) }
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("claude", enabled: enabled) },
+                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
                     ) {
                         VercelGatewayControls(serverManager: serverManager)
                     }
@@ -633,7 +621,8 @@ struct SettingsView: View {
                         onConnect: { connectService(.codex) },
                         onDisconnect: { account in disconnectAccount(account) },
                         onToggleDisabled: { account in toggleAccountDisabled(account) },
-                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("codex", enabled: enabled) }
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("codex", enabled: enabled) },
+                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
                     ) { EmptyView() }
 
                     ServiceRow(
@@ -651,7 +640,8 @@ struct SettingsView: View {
                         onConnect: { connectService(.gemini) },
                         onDisconnect: { account in disconnectAccount(account) },
                         onToggleDisabled: { account in toggleAccountDisabled(account) },
-                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("gemini", enabled: enabled) }
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("gemini", enabled: enabled) },
+                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
                     ) { EmptyView() }
 
                     ServiceRow(
@@ -669,7 +659,8 @@ struct SettingsView: View {
                         onConnect: { connectService(.kimi) },
                         onDisconnect: { account in disconnectAccount(account) },
                         onToggleDisabled: { account in toggleAccountDisabled(account) },
-                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("kimi", enabled: enabled) }
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("kimi", enabled: enabled) },
+                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
                     ) { EmptyView() }
 
                     ServiceRow(
@@ -687,7 +678,8 @@ struct SettingsView: View {
                         onConnect: { connectService(.copilot) },
                         onDisconnect: { account in disconnectAccount(account) },
                         onToggleDisabled: { account in toggleAccountDisabled(account) },
-                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("github-copilot", enabled: enabled) }
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("github-copilot", enabled: enabled) },
+                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
                     ) { EmptyView() }
 
                     ServiceRow(
@@ -705,7 +697,8 @@ struct SettingsView: View {
                         onConnect: { showingQwenEmailPrompt = true },
                         onDisconnect: { account in disconnectAccount(account) },
                         onToggleDisabled: { account in toggleAccountDisabled(account) },
-                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("qwen", enabled: enabled) }
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("qwen", enabled: enabled) },
+                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
                     ) { EmptyView() }
 
                     ServiceRow(
@@ -723,7 +716,8 @@ struct SettingsView: View {
                         onConnect: { showingZaiApiKeyPrompt = true },
                         onDisconnect: { account in disconnectAccount(account) },
                         onToggleDisabled: { account in toggleAccountDisabled(account) },
-                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("zai", enabled: enabled) }
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("zai", enabled: enabled) },
+                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
                     ) { EmptyView() }
                 }
                 
@@ -747,6 +741,9 @@ struct SettingsView: View {
                                 },
                                 onToggleEnabled: { enabled in
                                     serverManager.setProviderEnabled(provider.id, enabled: enabled)
+                                },
+                                onExpandChange: { expanded in
+                                    expandedRowCount += expanded ? 1 : -1
                                 }
                             )
                         }
@@ -754,6 +751,7 @@ struct SettingsView: View {
                 }
             }
             .formStyle(.grouped)
+            .scrollDisabled(expandedRowCount == 0)
 
             Spacer()
                 .frame(height: 6)
@@ -960,7 +958,7 @@ struct SettingsView: View {
         }
         
         serverManager.runAuthCommand(command) { success, output in
-            NSLog("[SettingsView] Auth completed - success: %d, output: %@", success, output)
+            NSLog("[SettingsView] Auth completed - success: %d", success)
             DispatchQueue.main.async {
                 self.authenticatingService = nil
                 
@@ -1008,7 +1006,7 @@ struct SettingsView: View {
         NSLog("[SettingsView] Starting Qwen authentication")
         
         serverManager.runAuthCommand(.qwenLogin(email: email)) { success, output in
-            NSLog("[SettingsView] Auth completed - success: %d, output: %@", success, output)
+            NSLog("[SettingsView] Auth completed - success: %d", success)
             DispatchQueue.main.async {
                 self.authenticatingService = nil
                 self.qwenEmail = ""
@@ -1031,7 +1029,7 @@ struct SettingsView: View {
         NSLog("[SettingsView] Adding Z.AI API key")
         
         serverManager.saveZaiApiKey(apiKey) { success, output in
-            NSLog("[SettingsView] Z.AI key save completed - success: %d, output: %@", success, output)
+            NSLog("[SettingsView] Z.AI key save completed - success: %d", success)
             DispatchQueue.main.async {
                 self.authenticatingService = nil
                 self.zaiApiKey = ""
@@ -1052,10 +1050,10 @@ struct SettingsView: View {
     
     private func startCustomProviderAuth(provider: CustomProviderDefinition, apiKey: String) {
         authenticatingCustomProviderID = provider.id
-        NSLog("[SettingsView] Adding API key for custom provider %@", provider.id)
+        NSLog("[SettingsView] Adding custom provider API key")
         
         serverManager.saveCustomProviderAPIKey(providerID: provider.id, apiKey: apiKey) { success, output in
-            NSLog("[SettingsView] Custom provider key save completed - success: %d, output: %@", success, output)
+            NSLog("[SettingsView] Custom provider key save completed - success: %d", success)
             DispatchQueue.main.async {
                 self.authenticatingCustomProviderID = nil
                 self.customProviderApiKey = ""

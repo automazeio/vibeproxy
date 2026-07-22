@@ -169,6 +169,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
                 self?.openSettings()
             },
             onCopyServerURL: { [weak self] in self?.copyServerURL() },
+            onOpenDashboard: { [weak self] in
+                self?.statusPopover.performClose(nil)
+                self?.openDashboard()
+            },
             onCheckForUpdates: { [weak self] in self?.updaterController.checkForUpdates(nil) },
             onQuit: { [weak self] in self?.quit() }
         ))
