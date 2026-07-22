@@ -93,6 +93,32 @@ When you click "Add Account" for Z.AI GLM:
 - **Menu Bar Icon**: Shows active/inactive state
 - **Launch at Login**: Toggle to start VibeProxy automatically
 
+### Advanced Configuration
+
+VibeProxy supports persistent [CLIProxyAPIPlus](https://github.com/router-for-me/CLIProxyAPIPlus) overrides in:
+
+```text
+~/.cli-proxy-api/config.yaml
+```
+
+VibeProxy merges this user-owned file with its bundled defaults, writes the effective runtime configuration to `~/.cli-proxy-api/merged-config.yaml`, and reloads changes automatically. Put custom settings in `config.yaml`; do not edit `merged-config.yaml` directly because VibeProxy regenerates it.
+
+For example, supported GPT models can default to concise responses by adding an OpenAI Responses API verbosity rule:
+
+```yaml
+payload:
+  default:
+    - models:
+        - name: "gpt-*"
+      protocol: "codex"
+      params:
+        "text.verbosity": "low"
+```
+
+`default` only supplies the value when the client does not already send one. Use `override` instead if the proxy should always enforce the configured value. Supported verbosity values are `low`, `medium`, and `high`.
+
+After saving the file, VibeProxy regenerates its runtime configuration and applies the change without an application restart.
+
 ## Requirements
 
 - macOS 13.0 (Ventura) or later
