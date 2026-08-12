@@ -126,7 +126,8 @@ struct ServiceRow<ExtraContent: View>: View {
     let onDisconnect: (AuthAccount) -> Void
     let onToggleDisabled: (AuthAccount) -> Void
     let onToggleEnabled: (Bool) -> Void
-    var onExpandChange: ((Bool) -> Void)? = nil
+    var connectButtonTitle = "Add Account"
+    var emptyStateText = "No connected accounts"
     @ViewBuilder var extraContent: () -> ExtraContent
 
     @State private var isExpanded = false
@@ -175,7 +176,7 @@ struct ServiceRow<ExtraContent: View>: View {
                     ProgressView()
                         .controlSize(.small)
                 } else if isEnabled {
-                    Button("Add Account") {
+                    Button(connectButtonTitle) {
                         onConnect()
                     }
                     .controlSize(.small)
@@ -226,7 +227,7 @@ struct ServiceRow<ExtraContent: View>: View {
                         .padding(.top, 4)
                     }
                 } else {
-                    Text("No connected accounts")
+                    Text(emptyStateText)
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .padding(.leading, 28)
@@ -249,9 +250,6 @@ struct ServiceRow<ExtraContent: View>: View {
             if newAccounts.contains(where: { $0.isExpired }) {
                 isExpanded = true
             }
-        }
-        .onChange(of: isExpanded) { newValue in
-            onExpandChange?(newValue)
         }
         .alert("Remove Account", isPresented: $showingRemoveConfirmation) {
             Button("Cancel", role: .cancel) {
@@ -336,7 +334,6 @@ struct CustomProviderRow: View {
     let onDisconnect: (CustomProviderCredential) -> Void
     let onToggleDisabled: (CustomProviderCredential) -> Void
     let onToggleEnabled: (Bool) -> Void
-    var onExpandChange: ((Bool) -> Void)? = nil
     
     @State private var isExpanded = false
     @State private var credentialToRemove: CustomProviderCredential?
@@ -484,9 +481,6 @@ struct CustomProviderRow: View {
         }
         .padding(.vertical, 4)
         .help(provider.effectiveHelpText)
-        .onChange(of: isExpanded) { newValue in
-            onExpandChange?(newValue)
-        }
         .alert("Remove API Key", isPresented: $showingRemoveConfirmation) {
             Button("Cancel", role: .cancel) {
                 credentialToRemove = nil
@@ -715,16 +709,20 @@ struct SettingsView: View {
                         iconSystemName: "sparkles",
                         accounts: authManager.accounts(for: .xai),
                         isAuthenticating: authenticatingService == .xai,
-                        helpText: "xAI provides OAuth-based access to Grok models through your Grok account.",
-                        isEnabled: serverManager.isProviderEnabled("xai"),
-                        isToggleLocked: serverManager.isProviderToggleLocked("xai"),
-                        toggleHelpText: serverManager.providerConfigLockReason("xai"),
-                        disabledReasonText: serverManager.providerConfigLockReason("xai"),
+                        helpText: "Sign in with your Grok account to use xAI through OAuth. This is not an xAI API key.",
+                        isEnabled: serverManager.isProviderEnabled(ProviderCatalog.xaiOAuthProviderStateKey),
+                        isToggleLocked: serverManager.isProviderToggleLocked(ProviderCatalog.xaiOAuthProviderStateKey),
+                        toggleHelpText: serverManager.providerConfigLockReason(ProviderCatalog.xaiOAuthProviderStateKey),
+                        disabledReasonText: serverManager.providerConfigLockReason(ProviderCatalog.xaiOAuthProviderStateKey),
                         customTitle: nil,
                         onConnect: { connectService(.xai) },
                         onDisconnect: { account in disconnectAccount(account) },
                         onToggleDisabled: { account in toggleAccountDisabled(account) },
-                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("xai", enabled: enabled) }
+                        onToggleEnabled: { enabled in
+                            serverManager.setProviderEnabled(ProviderCatalog.xaiOAuthProviderStateKey, enabled: enabled)
+                        },
+                        connectButtonTitle: "Sign In",
+                        emptyStateText: "Sign in with your Grok account (OAuth, not an API key)"
                     ) { EmptyView() }
 
                     ServiceRow(

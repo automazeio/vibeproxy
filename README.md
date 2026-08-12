@@ -72,15 +72,17 @@ Want to build it yourself? See [**INSTALLATION.md**](INSTALLATION.md) for detail
 1. Launch VibeProxy - you'll see a menu bar icon
 2. Click the icon and select "Open Settings"
 3. The server will start automatically
-4. Click "Connect" for Claude Code, Codex, Gemini, Kimi, Qwen, Antigravity, or xAI/Grok to authenticate, or "Add Account" for Z.AI GLM
+4. Click "Add Account" for Claude Code, Codex, Gemini, Kimi, Qwen, Antigravity, or Z.AI GLM; click "Sign In" for xAI/Grok
 
 ### Authentication
 
-When you click "Connect" for an OAuth provider:
+When you add an OAuth account:
 1. Your browser opens with the OAuth page
 2. Complete the authentication in the browser
 3. VibeProxy automatically detects your credentials
 4. Status updates to show you're connected
+
+xAI/Grok uses browser-based OAuth through your Grok account. It does not accept an xAI API key in the xAI/Grok service row; configure an API-key-based xAI endpoint as a custom provider instead.
 
 When you click "Add Account" for Z.AI GLM:
 1. Paste your provider API key
