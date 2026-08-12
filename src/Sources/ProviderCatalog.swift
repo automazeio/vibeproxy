@@ -2,6 +2,7 @@ import Foundation
 
 enum ProviderCatalog {
     static let managedZAIProviderName = "zai"
+    static let xaiOAuthProviderStateKey = "xai-oauth"
 
     /// OAuth provider keys used in config.yaml oauth-excluded-models.
     static let oauthProviderKeys: [String: String] = [
@@ -11,10 +12,13 @@ enum ProviderCatalog {
         "kimi": "kimi",
         "github-copilot": "github-copilot",
         "antigravity": "antigravity",
-        "qwen": "qwen"
+        "qwen": "qwen",
+        xaiOAuthProviderStateKey: "xai"
     ]
 
+    // xAI was previously available as an OpenAI-compatible custom provider.
     static let reservedCustomProviderKeys = Set(oauthProviderKeys.keys)
         .union(oauthProviderKeys.values)
         .union([managedZAIProviderName])
+        .subtracting(Set(["xai"]))
 }
