@@ -24,7 +24,8 @@ app: ## Create the .app bundle
 install: app ## Build and install to /Applications
 	@echo "📲 Installing to /Applications..."
 	@rm -rf "/Applications/VibeProxy.app"
-	@cp -r "VibeProxy.app" /Applications/
+	@cp -R "VibeProxy.app" /Applications/
+	@codesign --verify --deep --strict "/Applications/VibeProxy.app"
 	@echo "✅ Installed to /Applications/VibeProxy.app"
 
 run: app ## Build and run the app
