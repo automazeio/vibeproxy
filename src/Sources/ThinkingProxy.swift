@@ -27,6 +27,58 @@ enum AmpUpstream: Equatable {
     case actors
 }
 
+public enum AmpProviderRouteMapper {
+    public static func isCLIProxyPath(_ path: String) -> Bool {
+        path.hasPrefix("/v1/")
+            || path.hasPrefix("/api/v1/")
+            || path.hasPrefix("/v1beta/")
+            || path.hasPrefix("/api/v1beta/")
+    }
+
+    public static func cliProxyPath(for path: String) -> String {
+        for provider in ["anthropic", "openai"] {
+            let prefix = "/api/provider/\(provider)"
+            let suffix = String(path.dropFirst(prefix.count))
+            if path.hasPrefix(prefix + "/"), suffix.hasPrefix("/v1/") {
+                return suffix
+            }
+        }
+
+        let googlePrefix = "/api/provider/google"
+        guard path.hasPrefix(googlePrefix + "/") else { return path }
+        let suffix = String(path.dropFirst(googlePrefix.count))
+        if suffix.hasPrefix("/v1beta/") {
+            return suffix
+        }
+        if suffix.hasPrefix("/v1beta1/"), let modelsRange = suffix.range(of: "/models/") {
+            return "/v1beta/models/" + suffix[modelsRange.upperBound...]
+        }
+        return path
+    }
+}
+
+enum AmpClassicCompatibility {
+    static func shouldAcknowledgeLocally(method: String, path: String) -> Bool {
+        method.uppercased() == "POST" && path == "/api/internal?uploadThread"
+    }
+
+    static var acknowledgmentBody: Data {
+        Data(#"{"ok":true,"result":{}}"#.utf8)
+    }
+
+    static var acknowledgmentResponse: Data {
+        let body = acknowledgmentBody
+        let header = "HTTP/1.1 200 OK\r\n" +
+            "Content-Type: application/json\r\n" +
+            "Content-Length: \(body.count)\r\n" +
+            "Connection: close\r\n" +
+            "\r\n"
+        var response = Data(header.utf8)
+        response.append(body)
+        return response
+    }
+}
+
 struct AmpRequestRouter {
     static func upstream(
         method: String,
@@ -439,6 +491,15 @@ class ThinkingProxy {
             let value = String(line[valueStart...]).trimmingCharacters(in: .whitespaces)
             headers.append((name, value))
         }
+
+        if AmpClassicCompatibility.shouldAcknowledgeLocally(method: method, path: path) {
+            NSLog("[ThinkingProxy] Acknowledging Amp classic thread upload locally")
+            connection.send(
+                content: AmpClassicCompatibility.acknowledgmentResponse,
+                completion: .contentProcessed { _ in connection.cancel() }
+            )
+            return
+        }
         
         // Redirect Amp CLI login directly to ampcode.com to preserve auth state cookies
         if path.starts(with: "/auth/cli-login") || path.starts(with: "/api/auth/cli-login") {
@@ -456,11 +517,17 @@ class ThinkingProxy {
             rewrittenPath = "/api" + path
             NSLog("[ThinkingProxy] Rewriting Amp provider path: \(path) -> \(rewrittenPath)")
         }
+
+        let genericProviderPath = AmpProviderRouteMapper.cliProxyPath(for: rewrittenPath)
+        if genericProviderPath != rewrittenPath {
+            NSLog("[ThinkingProxy] Mapping Amp provider path: \(rewrittenPath) -> \(genericProviderPath)")
+            rewrittenPath = genericProviderPath
+        }
         
-        // Check if this is an Amp management request (anything not targeting provider or /v1)
+        // Check if this is an Amp management request (anything not targeting provider, /v1, or /v1beta)
         // Note: /provider/ paths are already rewritten to /api/provider/ above
         let isProviderPath = rewrittenPath.starts(with: "/api/provider/")
-        let isCliProxyPath = rewrittenPath.starts(with: "/v1/") || rewrittenPath.starts(with: "/api/v1/")
+        let isCliProxyPath = AmpProviderRouteMapper.isCLIProxyPath(rewrittenPath)
         if !isProviderPath && !isCliProxyPath {
             let ampPath = rewrittenPath
             switch AmpRequestRouter.upstream(method: method, path: ampPath, version: httpVersion, headers: headers) {

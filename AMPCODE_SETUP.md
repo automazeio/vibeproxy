@@ -1,157 +1,120 @@
 # Amp CLI Setup Guide
 
-This guide explains how to configure Amp CLI to work with VibeProxy, enabling you to use your existing subscriptions (Claude Max, ChatGPT Plus, Gemini) through Amp CLI.
+VibeProxy supports **Amp classic mode only** for local model inference. The current default Amp CLI (Amp Neo) runs inference in Amp's cloud actor and does not send model requests to `localhost`, so VibeProxy cannot redirect Neo inference to your local subscriptions.
 
-## Overview
-
-VibeProxy integrates with Amp CLI by:
-- Routing Amp login directly to ampcode.com (preserves OAuth cookies)
-- Routing model requests through CLIProxyAPI (uses your local subscriptions)
-- **No fallback** - you must authenticate the providers you want to use
+To avoid Amp credit usage, run the pinned classic CLI shown below. Do not use the current default `amp` command for inference through VibeProxy.
 
 ## Prerequisites
 
 - VibeProxy installed and running
-- Amp CLI installed (`amp --version` to verify)
-- Active subscription (Claude Max, ChatGPT Plus, or Gemini)
+- Node.js with `npx`
+- At least one provider authenticated in VibeProxy (Claude, ChatGPT/Codex, or Gemini)
 
-## Setup
-
-### 1. Configure Amp URL
+## 1. Point Amp at VibeProxy
 
 ```bash
 mkdir -p ~/.config/amp
-echo '{"amp.url": "http://localhost:8317"}' > ~/.config/amp/settings.json
+printf '%s\n' '{"amp.url": "http://localhost:8317"}' > ~/.config/amp/settings.json
 ```
 
-### 2. Authenticate Your Providers (Required)
+## 2. Authenticate local providers
 
-You must authenticate at least one provider to use Amp through VibeProxy:
+Use VibeProxy's provider controls, or run the bundled backend login command for the provider you need:
 
 ```bash
-# Claude (Anthropic) - uses your Claude Max/Pro subscription
+# Claude Max/Pro
 /Applications/VibeProxy.app/Contents/Resources/cli-proxy-api-plus \
   -config /Applications/VibeProxy.app/Contents/Resources/config.yaml \
   -claude-login
 
-# ChatGPT (OpenAI) - uses your ChatGPT Plus/Pro subscription
+# ChatGPT Plus/Pro (Codex OAuth)
 /Applications/VibeProxy.app/Contents/Resources/cli-proxy-api-plus \
   -config /Applications/VibeProxy.app/Contents/Resources/config.yaml \
   -codex-login
 
-# Gemini (Google) - uses your Google AI subscription
+# Gemini
 /Applications/VibeProxy.app/Contents/Resources/cli-proxy-api-plus \
   -config /Applications/VibeProxy.app/Contents/Resources/config.yaml \
   -login
 ```
 
-### 3. Login to Amp (Optional)
+Restart VibeProxy after authenticating from the command line.
 
-If you want to use Amp's management features:
-
-```bash
-amp login
-```
-
-Your browser will open to ampcode.com for authentication.
-
-### 4. Restart VibeProxy
-
-Quit and relaunch VibeProxy from the menu bar.
-
-### 5. Test
+## 3. Run the pinned classic CLI
 
 ```bash
-amp "Say hello"
+npx -y @ampcode/cli@0.0.1779896748-g596c49 --take-me-back "Say hello"
 ```
 
-## How It Works
+For a convenient stable command, create a wrapper:
+
+```bash
+mkdir -p ~/.local/bin
+cat > ~/.local/bin/amp-classic <<'EOF'
+#!/bin/sh
+exec npx -y @ampcode/cli@0.0.1779896748-g596c49 --take-me-back "$@"
+EOF
+chmod +x ~/.local/bin/amp-classic
+```
+
+Then use:
+
+```bash
+amp-classic "Say hello"
+```
+
+If `~/.local/bin` is not already on your `PATH`, add it before using the short command.
+
+Use the same pinned wrapper for Amp management commands such as login if needed. Do not substitute the latest `amp` binary: current Amp Neo is not compatible with local inference interception.
+
+The current Amp cloud API rejects classic-format thread uploads. VibeProxy acknowledges those uploads locally so classic commands can exit cleanly; those threads are not synchronized to ampcode.com.
+
+## How routing works
 
 ```text
-Amp CLI
+Pinned Amp classic CLI
   │
   ▼
-http://localhost:8317 (VibeProxy)
+http://localhost:8317 (VibeProxy ThinkingProxy)
   │
-  ├─► /auth/cli-login ──────────► https://ampcode.com (direct redirect)
-  │
-  ├─► /provider/* ──────────────► CLIProxyAPI:8318
+  ├─► /api/provider/anthropic/v1/* ─► /v1/*
+  ├─► /api/provider/openai/v1/*    ─► /v1/*
+  ├─► /api/provider/google/v1beta/* ─► /v1beta/*
+  ├─► Google v1beta1 publisher paths ─► /v1beta/models/*
   │                                      │
-  │                               Local OAuth token?
-  │                                      │
-  │                               ┌──────┴──────┐
-  │                               │             │
-  │                              YES           NO
-  │                               │             │
-  │                         Use your        ERROR
-  │                         subscription   (auth_unavailable)
+  │                                      ▼
+  │                               CLIProxyAPI:8318
+  │                               (local provider OAuth)
   │
-  └─► /api/* (management) ──────► https://ampcode.com
+  ├─► /auth/cli-login ─────────────► https://ampcode.com
+  └─► Amp management requests ─────► https://ampcode.com
 ```
 
-## Provider Priority
+The path compatibility mapping is needed because the bundled CLIProxyAPIPlus no longer registers its old Amp-specific `/api/provider/*` routes, while its generic Anthropic, OpenAI, and Gemini endpoints remain available.
 
-When logged into multiple providers (Claude, ChatGPT, Gemini, etc.), Amp may pick models from any of them. Use **Provider Priority** to control which providers are active.
+## Provider controls
 
-### Enable/Disable Providers
-
-In VibeProxy Settings, each provider has a toggle switch:
-- **Enabled** (default) - Provider's models are available to Amp
-- **Disabled** - Provider's models are excluded from Amp
-
-Changes apply instantly via hot reload - no restart needed.
-
-### Use Cases
-
-- **Single provider mode** - Disable all but one provider to ensure Amp always uses that provider
-- **Avoid rate limits** - Disable providers you've hit rate limits on
-- **Testing** - Quickly switch between providers to compare responses
-
-### Notes
-
-- When all providers are disabled, Amp falls back to its free tier (rate limited)
-- Provider toggles only affect model availability, not authentication status
-- You remain logged into disabled providers and can re-enable them anytime
+VibeProxy's provider toggles control which locally authenticated providers and models CLIProxyAPI exposes. Disabling a provider does **not** make Amp Neo fall back through VibeProxy; Neo inference remains cloud-hosted and unsupported. If classic mode reports `auth_unavailable: no auth available`, authenticate or re-enable the provider needed by the selected model.
 
 ## Troubleshooting
 
-### "auth_unavailable: no auth available"
+### Requests do not appear in VibeProxy logs
 
-You haven't authenticated the provider for the model you're trying to use.
+Confirm the command includes both the pinned package version and `--take-me-back`. The current default Amp Neo client does not send inference requests through VibeProxy.
 
-**Solution:** Run the appropriate login command:
-- For Claude models: `-claude-login`
-- For GPT models: `-codex-login`
-- For Gemini models: `-login`
+### `auth_unavailable: no auth available`
 
-Then restart VibeProxy.
+Authenticate the provider required by the requested model, then restart VibeProxy if login was performed with the backend command.
 
-### OAuth token expired
+### Amp provider request returns 404
 
-Re-authenticate the provider:
+Confirm VibeProxy is running on port 8317 and the client is configured with `"amp.url": "http://localhost:8317"`. The ThinkingProxy compatibility layer maps classic Amp provider paths to the backend's generic endpoints.
 
-```bash
-# Check token files
-ls -la ~/.cli-proxy-api/*.json
+### Login fails in the browser
 
-# Re-login (example for Claude)
-/Applications/VibeProxy.app/Contents/Resources/cli-proxy-api-plus \
-  -config /Applications/VibeProxy.app/Contents/Resources/config.yaml \
-  -claude-login
-```
+Make sure VibeProxy is running before invoking login through the pinned classic wrapper.
 
-### Login fails in browser
-
-Make sure VibeProxy is running before attempting `amp login`.
-
-## Benefits
-
-- **Use your subscriptions** - Claude Max, ChatGPT Plus, Gemini work through Amp
-- **No surprise charges** - No fallback to Amp credits
-- **Full transparency** - Clear error if provider not authenticated
-- **One proxy** - Factory and Amp share the same setup
-
-## Additional Resources
+## Additional resources
 
 - [Amp CLI Documentation](https://ampcode.com/manual)
 - [Factory Setup Guide](FACTORY_SETUP.md)

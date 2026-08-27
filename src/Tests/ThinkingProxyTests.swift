@@ -2,6 +2,92 @@ import XCTest
 @testable import CLIProxyMenuBar
 
 final class ThinkingProxyTests: XCTestCase {
+    func testClassicThreadUploadIsAcknowledgedLocally() {
+        XCTAssertTrue(
+            AmpClassicCompatibility.shouldAcknowledgeLocally(
+                method: "POST",
+                path: "/api/internal?uploadThread"
+            )
+        )
+        XCTAssertFalse(
+            AmpClassicCompatibility.shouldAcknowledgeLocally(
+                method: "GET",
+                path: "/api/internal?uploadThread"
+            )
+        )
+        XCTAssertFalse(
+            AmpClassicCompatibility.shouldAcknowledgeLocally(
+                method: "POST",
+                path: "/api/internal?getUserInfo"
+            )
+        )
+    }
+
+    func testClassicThreadUploadAcknowledgmentMatchesInternalAPIEnvelope() throws {
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: AmpClassicCompatibility.acknowledgmentBody)
+                as? [String: Any]
+        )
+
+        XCTAssertEqual(object["ok"] as? Bool, true)
+        XCTAssertNotNil(object["result"] as? [String: Any])
+        XCTAssertNil(object["error"])
+    }
+
+    func testClassicThreadUploadAcknowledgmentIsACompleteHTTPResponse() throws {
+        let response = AmpClassicCompatibility.acknowledgmentResponse
+        let separator = try XCTUnwrap(response.range(of: Data("\r\n\r\n".utf8)))
+        let header = try XCTUnwrap(String(data: response[..<separator.lowerBound], encoding: .utf8))
+        let body = Data(response[separator.upperBound...])
+
+        XCTAssertTrue(header.hasPrefix("HTTP/1.1 200 OK\r\n"))
+        XCTAssertTrue(header.contains("Content-Type: application/json\r\n"))
+        XCTAssertTrue(header.contains("Content-Length: \(body.count)\r\n"))
+        XCTAssertTrue(header.contains("Connection: close"))
+        XCTAssertEqual(body, AmpClassicCompatibility.acknowledgmentBody)
+    }
+
+    func testMapsAmpAnthropicMessagesToGenericClaudeEndpoint() {
+        XCTAssertEqual(
+            AmpProviderRouteMapper.cliProxyPath(for: "/api/provider/anthropic/v1/messages"),
+            "/v1/messages"
+        )
+    }
+
+    func testMapsAmpOpenAIAndGoogleRoutesToGenericEndpoints() {
+        XCTAssertEqual(
+            AmpProviderRouteMapper.cliProxyPath(for: "/api/provider/openai/v1/responses"),
+            "/v1/responses"
+        )
+        XCTAssertEqual(
+            AmpProviderRouteMapper.cliProxyPath(for: "/api/provider/google/v1beta/models/gemini-2.5-pro:generateContent?alt=sse"),
+            "/v1beta/models/gemini-2.5-pro:generateContent?alt=sse"
+        )
+        XCTAssertEqual(
+            AmpProviderRouteMapper.cliProxyPath(for: "/api/provider/google/v1beta1/publishers/google/models/gemini-3-pro-preview:streamGenerateContent?alt=sse"),
+            "/v1beta/models/gemini-3-pro-preview:streamGenerateContent?alt=sse"
+        )
+    }
+
+    func testDoesNotRewriteUnknownOrProviderLookalikeRoutes() {
+        XCTAssertEqual(
+            AmpProviderRouteMapper.cliProxyPath(for: "/api/provider/groq/v1/chat/completions"),
+            "/api/provider/groq/v1/chat/completions"
+        )
+        XCTAssertEqual(
+            AmpProviderRouteMapper.cliProxyPath(for: "/api/provider/anthropic-proxy/v1/messages"),
+            "/api/provider/anthropic-proxy/v1/messages"
+        )
+    }
+
+    func testMappedGeminiPathRemainsLocalCLIProxyTraffic() {
+        let path = AmpProviderRouteMapper.cliProxyPath(
+            for: "/api/provider/google/v1beta/models/gemini-2.5-pro:generateContent"
+        )
+
+        XCTAssertTrue(AmpProviderRouteMapper.isCLIProxyPath(path))
+    }
+
     func testActorWebSocketAddsAmpRivetPublicTokenToUpstreamPath() throws {
         let handshake = try XCTUnwrap(AmpWebSocketHandshake.request(
             method: "GET",
