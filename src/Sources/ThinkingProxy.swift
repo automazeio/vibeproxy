@@ -22,6 +22,191 @@ struct VercelGatewayConfig {
     var isActive: Bool { enabled && !apiKey.isEmpty }
 }
 
+enum AmpUpstream: Equatable {
+    case management
+    case actors
+}
+
+struct AmpRequestRouter {
+    static func upstream(
+        method: String,
+        version: String,
+        headers: [(String, String)]
+    ) -> AmpUpstream {
+        let connectionTokens = headerTokens(named: "connection", in: headers)
+        let upgradeTokens = headerTokens(named: "upgrade", in: headers)
+
+        if method.uppercased() == "GET",
+           version == "HTTP/1.1",
+           connectionTokens.contains("upgrade"),
+           upgradeTokens.contains("websocket") {
+            return .actors
+        }
+        return .management
+    }
+
+    private static func headerTokens(
+        named expectedName: String,
+        in headers: [(String, String)]
+    ) -> Set<String> {
+        Set(headers
+            .filter { $0.0.caseInsensitiveCompare(expectedName) == .orderedSame }
+            .flatMap { $0.1.split(separator: ",") }
+            .map { $0.trimmingCharacters(in: .whitespaces).lowercased() })
+    }
+}
+
+struct AmpWebSocketHandshake {
+    static let host = "ampcode.com"
+    // Public Rivet routing token used by Amp's cloud actor endpoint.
+    static let rivetPublicToken = "pk_9tm4qz3zrMerdZXTlBRLRsmJIzSQIPH24meKBqiL6vVpscTvc4w1YPiBgymXf9Az"
+
+    static func request(
+        method: String,
+        path: String,
+        version: String,
+        headers: [(String, String)],
+        rivetToken: String? = rivetPublicToken,
+        initialPayload: Data = Data()
+    ) -> Data? {
+        var upstreamPath = path
+        if path.hasPrefix("/actors/gateway/"), let rivetToken {
+            upstreamPath = addingRivetToken(rivetToken, to: path)
+        }
+        var request = "\(method) \(upstreamPath) \(version)\r\n"
+        for (name, value) in headers where name.lowercased() != "host" {
+            request += "\(name): \(value)\r\n"
+        }
+        request += "Host: \(host)\r\n\r\n"
+        guard var data = request.data(using: .utf8) else { return nil }
+        data.append(initialPayload)
+        return data
+    }
+
+    private static func addingRivetToken(_ token: String, to path: String) -> String {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&=+#?")
+        guard let encodedToken = token.addingPercentEncoding(withAllowedCharacters: allowed) else {
+            return path
+        }
+
+        guard let queryMarker = path.firstIndex(of: "?") else {
+            return path + "?rvt-token=" + encodedToken
+        }
+
+        let queryStart = path.index(after: queryMarker)
+        let pathPrefix = path[...queryMarker]
+        let fields = path[queryStart...].split(separator: "&", omittingEmptySubsequences: false).map(String.init)
+        var tokenFields: [(index: Int, value: String, field: String)] = []
+
+        for index in fields.indices {
+            let field = fields[index]
+            let separator = field.firstIndex(of: "=")
+            let encodedName = separator.map { String(field[..<$0]) } ?? field
+            guard encodedName.removingPercentEncoding == "rvt-token" else { continue }
+
+            let value = separator.map { String(field[field.index(after: $0)...]) } ?? ""
+            tokenFields.append((index, value, field))
+        }
+
+        if let firstToken = tokenFields.first {
+            let canonicalField = tokenFields.first(where: { !$0.value.isEmpty })?.field
+                ?? "rvt-token=" + encodedToken
+            let tokenIndices = Set(tokenFields.map(\.index))
+            var canonicalFields: [String] = []
+            for index in fields.indices {
+                if index == firstToken.index {
+                    canonicalFields.append(canonicalField)
+                } else if !tokenIndices.contains(index) {
+                    canonicalFields.append(fields[index])
+                }
+            }
+            return String(pathPrefix) + canonicalFields.joined(separator: "&")
+        }
+
+        let separator = path.hasSuffix("?") || path.hasSuffix("&") ? "" : "&"
+        return path + separator + "rvt-token=" + encodedToken
+    }
+}
+
+enum HTTPStatusLine {
+    static func from(_ data: Data) -> String? {
+        guard let lineEnd = data.range(of: Data("\r\n".utf8)),
+              let line = String(data: data[..<lineEnd.lowerBound], encoding: .utf8),
+              line.hasPrefix("HTTP/") else {
+            return nil
+        }
+        return line
+    }
+}
+
+private final class BidirectionalTunnel {
+    private let first: NWConnection
+    private let second: NWConnection
+    private let lock = NSLock()
+    private var completedDirections = 0
+    private var failed = false
+
+    init(_ first: NWConnection, _ second: NWConnection) {
+        self.first = first
+        self.second = second
+    }
+
+    func start() {
+        pump(from: first, to: second)
+        pump(from: second, to: first)
+    }
+
+    private func pump(from source: NWConnection, to destination: NWConnection) {
+        source.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [self] data, _, isComplete, error in
+            if let error {
+                closeAfterFailure(error)
+                return
+            }
+
+            if data == nil && !isComplete {
+                pump(from: source, to: destination)
+                return
+            }
+
+            destination.send(content: data, isComplete: isComplete, completion: .contentProcessed { [self] error in
+                if let error {
+                    closeAfterFailure(error)
+                } else if isComplete {
+                    directionCompleted()
+                } else {
+                    pump(from: source, to: destination)
+                }
+            })
+        }
+    }
+
+    private func directionCompleted() {
+        lock.lock()
+        completedDirections += 1
+        let shouldClose = completedDirections == 2 && !failed
+        lock.unlock()
+
+        if shouldClose {
+            first.cancel()
+            second.cancel()
+        }
+    }
+
+    private func closeAfterFailure(_ error: NWError) {
+        lock.lock()
+        let shouldClose = !failed
+        failed = true
+        lock.unlock()
+
+        if shouldClose {
+            NSLog("[ThinkingProxy] WebSocket tunnel error: \(error)")
+            first.cancel()
+            second.cancel()
+        }
+    }
+}
+
 class ThinkingProxy {
     private var listener: NWListener?
     let proxyPort: UInt16 = 8317
@@ -38,6 +223,7 @@ class ThinkingProxy {
         static let headroomRatio = 0.1
         static let vercelGatewayHost = "ai-gateway.vercel.sh"
         static let anthropicVersion = "2023-06-01"
+        static let ampActorsHost = AmpWebSocketHandshake.host
     }
     
     /**
@@ -148,13 +334,13 @@ class ThinkingProxy {
             var newAccumulatedData = accumulatedData
             newAccumulatedData.append(data)
             
-            // Check if we have a complete HTTP request
-            if let requestString = String(data: newAccumulatedData, encoding: .utf8),
-               let headerEndRange = requestString.range(of: "\r\n\r\n") {
+            // Check if we have a complete HTTP header without decoding any
+            // WebSocket bytes that may already follow it.
+            if let headerEndRange = newAccumulatedData.range(of: Data("\r\n\r\n".utf8)),
+               let headerPart = String(data: newAccumulatedData[..<headerEndRange.upperBound], encoding: .utf8) {
                 
                 // Extract Content-Length if present
-                let headerEndIndex = requestString.distance(from: requestString.startIndex, to: headerEndRange.upperBound)
-                let headerPart = String(requestString.prefix(headerEndIndex))
+                let headerEndIndex = headerEndRange.upperBound
                 
                 if let contentLengthLine = headerPart.components(separatedBy: "\r\n").first(where: { $0.lowercased().starts(with: "content-length:") }) {
                     let contentLengthStr = contentLengthLine.components(separatedBy: ":")[1].trimmingCharacters(in: .whitespaces)
@@ -186,10 +372,12 @@ class ThinkingProxy {
      Processes the HTTP request, modifies it if needed, and forwards to CLIProxyAPI
      */
     private func processRequest(data: Data, connection: NWConnection) {
-        guard let requestString = String(data: data, encoding: .utf8) else {
+        guard let headerEndRange = data.range(of: Data("\r\n\r\n".utf8)),
+              let requestString = String(data: data[..<headerEndRange.upperBound], encoding: .utf8) else {
             sendError(to: connection, statusCode: 400, message: "Invalid request")
             return
         }
+        let bodyData = Data(data[headerEndRange.upperBound...])
         
         // Parse HTTP request
         let lines = requestString.components(separatedBy: "\r\n")
@@ -221,16 +409,6 @@ class ThinkingProxy {
             headers.append((name, value))
         }
         
-        // Find the body start
-        guard let bodyStartRange = requestString.range(of: "\r\n\r\n") else {
-            NSLog("[ThinkingProxy] Error: Could not find body separator in request")
-            sendError(to: connection, statusCode: 400, message: "Invalid request format - no body separator")
-            return
-        }
-        
-        let bodyStart = requestString.distance(from: requestString.startIndex, to: bodyStartRange.upperBound)
-        let bodyString = String(requestString[requestString.index(requestString.startIndex, offsetBy: bodyStart)...])
-        
         // Redirect Amp CLI login directly to ampcode.com to preserve auth state cookies
         if path.starts(with: "/auth/cli-login") || path.starts(with: "/api/auth/cli-login") {
             let loginPath = path.hasPrefix("/api/") ? String(path.dropFirst(4)) : path
@@ -254,8 +432,30 @@ class ThinkingProxy {
         let isCliProxyPath = rewrittenPath.starts(with: "/v1/") || rewrittenPath.starts(with: "/api/v1/")
         if !isProviderPath && !isCliProxyPath {
             let ampPath = rewrittenPath
-            NSLog("[ThinkingProxy] Amp management request detected, forwarding to ampcode.com: \(ampPath)")
-            forwardToAmp(method: method, path: ampPath, version: httpVersion, headers: headers, body: bodyString, originalConnection: connection)
+            switch AmpRequestRouter.upstream(method: method, version: httpVersion, headers: headers) {
+            case .management:
+                guard let bodyString = String(data: bodyData, encoding: .utf8) else {
+                    sendError(to: connection, statusCode: 400, message: "Invalid request body")
+                    return
+                }
+                NSLog("[ThinkingProxy] Amp management request detected, forwarding to ampcode.com: \(ampPath)")
+                forwardToAmp(method: method, path: ampPath, version: httpVersion, headers: headers, body: bodyString, originalConnection: connection)
+            case .actors:
+                NSLog("[ThinkingProxy] Amp actor WebSocket detected, forwarding to \(Config.ampActorsHost): \(ampPath)")
+                forwardAmpWebSocket(
+                    method: method,
+                    path: ampPath,
+                    version: httpVersion,
+                    headers: headers,
+                    initialPayload: bodyData,
+                    originalConnection: connection
+                )
+            }
+            return
+        }
+
+        guard let bodyString = String(data: bodyData, encoding: .utf8) else {
+            sendError(to: connection, statusCode: 400, message: "Invalid request body")
             return
         }
         
@@ -517,6 +717,105 @@ class ThinkingProxy {
         
         targetConnection.start(queue: .global(qos: .userInitiated))
     }
+
+    private func forwardAmpWebSocket(
+        method: String,
+        path: String,
+        version: String,
+        headers: [(String, String)],
+        initialPayload: Data,
+        originalConnection: NWConnection
+    ) {
+        guard let request = AmpWebSocketHandshake.request(
+            method: method,
+            path: path,
+            version: version,
+            headers: headers,
+            initialPayload: initialPayload
+        ) else {
+            sendError(to: originalConnection, statusCode: 400, message: "Invalid WebSocket handshake")
+            return
+        }
+
+        let parameters = NWParameters(tls: NWProtocolTLS.Options(), tcp: NWProtocolTCP.Options())
+        let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(Config.ampActorsHost), port: 443)
+        let targetConnection = NWConnection(to: endpoint, using: parameters)
+
+        targetConnection.stateUpdateHandler = { [weak self] state in
+            guard let self else { return }
+            switch state {
+            case .ready:
+                // From this point on, upgraded traffic is an opaque byte stream;
+                // it must never pass through Amp's HTTP response rewriting.
+                targetConnection.stateUpdateHandler = nil
+                targetConnection.send(content: request, completion: .contentProcessed { error in
+                    if let error {
+                        NSLog("[ThinkingProxy] WebSocket handshake send error: \(error)")
+                        targetConnection.cancel()
+                        originalConnection.cancel()
+                        return
+                    }
+
+                    self.receiveAmpWebSocketHandshakeResponse(
+                        from: targetConnection,
+                        originalConnection: originalConnection
+                    )
+                })
+            case .failed(let error):
+                NSLog("[ThinkingProxy] Connection to \(Config.ampActorsHost) failed: \(error)")
+                self.sendError(to: originalConnection, statusCode: 502, message: "Bad Gateway - Could not connect to Amp actors")
+                targetConnection.cancel()
+            default:
+                break
+            }
+        }
+
+        targetConnection.start(queue: .global(qos: .userInitiated))
+    }
+
+    private func receiveAmpWebSocketHandshakeResponse(
+        from targetConnection: NWConnection,
+        originalConnection: NWConnection
+    ) {
+        targetConnection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, isComplete, error in
+            if let error {
+                NSLog("[ThinkingProxy] WebSocket handshake receive error: \(error)")
+                targetConnection.cancel()
+                originalConnection.cancel()
+                return
+            }
+
+            guard let data, !data.isEmpty else {
+                if isComplete {
+                    targetConnection.cancel()
+                    originalConnection.cancel()
+                } else {
+                    self.receiveAmpWebSocketHandshakeResponse(
+                        from: targetConnection,
+                        originalConnection: originalConnection
+                    )
+                }
+                return
+            }
+
+            if let statusLine = HTTPStatusLine.from(data) {
+                NSLog("[ThinkingProxy] Amp actor handshake response: \(statusLine)")
+            }
+
+            originalConnection.send(content: data, isComplete: isComplete, completion: .contentProcessed { sendError in
+                if let sendError {
+                    NSLog("[ThinkingProxy] WebSocket handshake response send error: \(sendError)")
+                    targetConnection.cancel()
+                    originalConnection.cancel()
+                } else if isComplete {
+                    targetConnection.cancel()
+                    originalConnection.cancel()
+                } else {
+                    BidirectionalTunnel(originalConnection, targetConnection).start()
+                }
+            })
+        }
+    }
     
     /**
      Receives response from ampcode.com and rewrites Location headers to add /api/ prefix
@@ -612,7 +911,7 @@ class ThinkingProxy {
             }
         }
     }
-    
+
     /**
      Forwards Claude requests to Vercel AI Gateway (ai-gateway.vercel.sh)
      */
