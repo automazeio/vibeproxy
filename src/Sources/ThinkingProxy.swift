@@ -30,16 +30,23 @@ enum AmpUpstream: Equatable {
 struct AmpRequestRouter {
     static func upstream(
         method: String,
+        path: String,
         version: String,
         headers: [(String, String)]
     ) -> AmpUpstream {
         let connectionTokens = headerTokens(named: "connection", in: headers)
         let upgradeTokens = headerTokens(named: "upgrade", in: headers)
+        let websocketKeys = headerValues(named: "sec-websocket-key", in: headers)
+        let websocketVersions = headerValues(named: "sec-websocket-version", in: headers)
 
         if method.uppercased() == "GET",
+           path.hasPrefix("/actors/gateway/"),
            version == "HTTP/1.1",
            connectionTokens.contains("upgrade"),
-           upgradeTokens.contains("websocket") {
+           upgradeTokens.contains("websocket"),
+           websocketKeys.count == 1,
+           Data(base64Encoded: websocketKeys[0])?.count == 16,
+           websocketVersions == ["13"] {
             return .actors
         }
         return .management
@@ -53,6 +60,15 @@ struct AmpRequestRouter {
             .filter { $0.0.caseInsensitiveCompare(expectedName) == .orderedSame }
             .flatMap { $0.1.split(separator: ",") }
             .map { $0.trimmingCharacters(in: .whitespaces).lowercased() })
+    }
+
+    private static func headerValues(
+        named expectedName: String,
+        in headers: [(String, String)]
+    ) -> [String] {
+        headers
+            .filter { $0.0.caseInsensitiveCompare(expectedName) == .orderedSame }
+            .map { $0.1.trimmingCharacters(in: .whitespaces) }
     }
 }
 
@@ -73,11 +89,26 @@ struct AmpWebSocketHandshake {
         if path.hasPrefix("/actors/gateway/"), let rivetToken {
             upstreamPath = addingRivetToken(rivetToken, to: path)
         }
+
+        var excludedHeaders: Set<String> = [
+            "connection", "content-length", "host", "keep-alive", "proxy-authorization",
+            "proxy-connection", "te", "trailer", "transfer-encoding", "upgrade",
+        ]
+        for value in headers where value.0.caseInsensitiveCompare("connection") == .orderedSame {
+            excludedHeaders.formUnion(
+                value.1.split(separator: ",").map {
+                    $0.trimmingCharacters(in: .whitespaces).lowercased()
+                }
+            )
+        }
+
         var request = "\(method) \(upstreamPath) \(version)\r\n"
-        for (name, value) in headers where name.lowercased() != "host" {
+        for (name, value) in headers where !excludedHeaders.contains(name.lowercased()) {
             request += "\(name): \(value)\r\n"
         }
-        request += "Host: \(host)\r\n\r\n"
+        request += "Host: \(host)\r\n"
+        request += "Connection: Upgrade\r\n"
+        request += "Upgrade: websocket\r\n\r\n"
         guard var data = request.data(using: .utf8) else { return nil }
         data.append(initialPayload)
         return data
@@ -432,7 +463,7 @@ class ThinkingProxy {
         let isCliProxyPath = rewrittenPath.starts(with: "/v1/") || rewrittenPath.starts(with: "/api/v1/")
         if !isProviderPath && !isCliProxyPath {
             let ampPath = rewrittenPath
-            switch AmpRequestRouter.upstream(method: method, version: httpVersion, headers: headers) {
+            switch AmpRequestRouter.upstream(method: method, path: ampPath, version: httpVersion, headers: headers) {
             case .management:
                 guard let bodyString = String(data: bodyData, encoding: .utf8) else {
                     sendError(to: connection, statusCode: 400, message: "Invalid request body")
