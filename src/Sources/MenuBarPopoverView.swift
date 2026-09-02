@@ -54,7 +54,6 @@ struct MenuBarPopoverView: View {
                 }
                 .padding(14)
             }
-            .fixedSize(horizontal: false, vertical: true)
             .frame(maxHeight: 440)
 
             Divider()
