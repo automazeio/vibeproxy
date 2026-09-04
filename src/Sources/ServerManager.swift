@@ -53,6 +53,8 @@ private struct RingBuffer<Element> {
 class ServerManager: ObservableObject {
     private var process: Process?
     private var activeAuthProcess: Process?
+    private var ccProxyProcess: Process?
+    private let ccProxyPort = 8399
     @Published private(set) var isRunning = false
     private(set) var port = 8317
     @Published private(set) var customProviders: [CustomProviderDefinition] = []
@@ -287,6 +289,7 @@ class ServerManager: ObservableObject {
                 self.activeConfigPath = configPath
             }
             addLog("✓ Server started on port \(port)")
+            startCCProxy()
             
             // Wait a bit to ensure it started successfully
             DispatchQueue.main.asyncAfter(deadline: .now() + Timing.readinessCheckDelay) { [weak self] in
@@ -305,7 +308,86 @@ class ServerManager: ObservableObject {
         }
     }
     
+    // MARK: - Command Code Proxy
+    
+    private func startCCProxy() {
+        stopCCProxy()
+        
+        guard let resourcePath = Bundle.main.resourcePath else {
+            addLog("⚠️ CC proxy: Could not find resource path")
+            return
+        }
+        
+        let binaryPath = (resourcePath as NSString).appendingPathComponent("commandcode-proxy")
+        guard FileManager.default.fileExists(atPath: binaryPath) else {
+            addLog("⚠️ CC proxy: Binary not found at \(binaryPath)")
+            return
+        }
+        
+        let ccProcess = Process()
+        ccProcess.executableURL = URL(fileURLWithPath: binaryPath)
+        ccProcess.arguments = ["--port", "\(ccProxyPort)", "--host", "127.0.0.1"]
+        
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+        ccProcess.standardOutput = outputPipe
+        ccProcess.standardError = errorPipe
+        
+        outputPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            if let output = String(data: data, encoding: .utf8), !output.isEmpty {
+                self?.addLog("[CC Proxy] \(output.trimmingCharacters(in: .whitespacesAndNewlines))")
+            }
+        }
+        
+        errorPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            if let output = String(data: data, encoding: .utf8), !output.isEmpty {
+                self?.addLog("⚠️ [CC Proxy] \(output.trimmingCharacters(in: .whitespacesAndNewlines))")
+            }
+        }
+        
+        ccProcess.terminationHandler = { [weak self] _ in
+            outputPipe.fileHandleForReading.readabilityHandler = nil
+            errorPipe.fileHandleForReading.readabilityHandler = nil
+            DispatchQueue.main.async {
+                if self?.ccProxyProcess === ccProcess {
+                    self?.ccProxyProcess = nil
+                }
+            }
+        }
+        
+        do {
+            try ccProcess.run()
+            ccProxyProcess = ccProcess
+            addLog("✓ Command Code proxy started on port \(ccProxyPort)")
+        } catch {
+            addLog("❌ Failed to start CC proxy: \(error.localizedDescription)")
+        }
+    }
+    
+    private func stopCCProxy() {
+        guard let ccProcess = ccProxyProcess else { return }
+        
+        if ccProcess.isRunning {
+            ccProcess.terminate()
+            
+            let deadline = Date().addingTimeInterval(Timing.gracefulTerminationTimeout)
+            while ccProcess.isRunning && Date() < deadline {
+                Thread.sleep(forTimeInterval: Timing.terminationPollInterval)
+            }
+            
+            if ccProcess.isRunning {
+                kill(ccProcess.processIdentifier, SIGKILL)
+            }
+            
+            ccProcess.waitUntilExit()
+        }
+        
+        ccProxyProcess = nil
+    }
     func stop(completion: (() -> Void)? = nil) {
+        stopCCProxy()
         guard let process = process else {
             DispatchQueue.main.async {
                 self.isRunning = false
@@ -939,6 +1021,40 @@ class ServerManager: ObservableObject {
             // Exit code 1 means no processes found - this is fine, no need to log
         } catch {
             // Silently fail - this is not critical
+        }
+        
+        // Also clean up orphaned commandcode-proxy processes
+        let ccCheckTask = Process()
+        ccCheckTask.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        ccCheckTask.arguments = ["-f", "commandcode-proxy"]
+        
+        let ccOutputPipe = Pipe()
+        ccCheckTask.standardOutput = ccOutputPipe
+        ccCheckTask.standardError = Pipe()
+        
+        do {
+            try ccCheckTask.run()
+            ccCheckTask.waitUntilExit()
+            
+            if ccCheckTask.terminationStatus == 0 {
+                let data = ccOutputPipe.fileHandleForReading.readDataToEndOfFile()
+                let output = String(data: data, encoding: .utf8) ?? ""
+                let pids = output.components(separatedBy: .newlines).filter { !$0.isEmpty }
+                
+                if !pids.isEmpty {
+                    let killTask = Process()
+                    killTask.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+                    killTask.arguments = ["-9", "-f", "commandcode-proxy"]
+                    
+                    try killTask.run()
+                    killTask.waitUntilExit()
+                    
+                    Thread.sleep(forTimeInterval: 0.3)
+                    addLog("✓ Cleaned up orphaned CC proxy processes")
+                }
+            }
+        } catch {
+            // Silently fail
         }
     }
     
