@@ -310,6 +310,13 @@ Edit your Factory configuration file at `~/.factory/config.json` (if the file do
     },
 
     {
+      "model_display_name": "GLM-5.2",
+      "model": "glm-5.2",
+      "base_url": "http://localhost:8317/v1",
+      "api_key": "dummy-not-used",
+      "provider": "openai"
+    },
+    {
       "model_display_name": "GLM-5",
       "model": "glm-5",
       "base_url": "http://localhost:8317/v1",
@@ -434,6 +441,7 @@ Antigravity provides access to Claude models with a generous usage quota (shared
 - `qwen3-coder-flash` - Qwen3 Coder Flash (Fast coding assistant)
 
 ### Z.AI GLM Models
+- `glm-5.2` - GLM-5.2 (latest GLM model; availability may depend on your Z.AI plan)
 - `glm-5` - GLM-5 (latest GLM model; Pro availability may depend on your Z.AI plan)
 - `glm-4.7` - GLM-4.7 (stable GLM coding model)
 - `glm-4-plus` - GLM-4-Plus (Enhanced GLM model)

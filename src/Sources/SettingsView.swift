@@ -723,7 +723,7 @@ struct SettingsView: View {
                         iconSystemName: nil,
                         accounts: authManager.accounts(for: .zai),
                         isAuthenticating: authenticatingService == .zai,
-                        helpText: "Z.AI GLM provides access to GLM-4.7 and other models via API key. Get your key at https://z.ai/manage-apikey/apikey-list",
+                        helpText: "Z.AI GLM provides access to GLM-5.2, GLM-5, GLM-4.7, and other models via API key. Get your key at https://z.ai/manage-apikey/apikey-list",
                         isEnabled: serverManager.isProviderEnabled("zai"),
                         isToggleLocked: serverManager.isProviderToggleLocked("zai"),
                         toggleHelpText: serverManager.providerConfigLockReason("zai"),

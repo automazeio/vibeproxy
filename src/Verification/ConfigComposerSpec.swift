@@ -245,6 +245,12 @@ struct ConfigComposerSpec {
 
             let zai = provider(named: "zai", in: runtime)
             expectEqual(apiKeys(in: zai ?? [:]), ["zai-key-1"], "managed zai provider should be injected", recorder: recorder)
+            expectEqual(
+                modelAliases(in: zai ?? [:]),
+                ["glm-5.2", "glm-5", "glm-4.7", "glm-4-plus", "glm-4-air", "glm-4-flash"],
+                "managed zai provider should include current GLM aliases",
+                recorder: recorder
+            )
         }
 
         run("composeRuntimeConfig preserves user-authored zai models and merges inline plus managed keys", recorder: recorder) {
