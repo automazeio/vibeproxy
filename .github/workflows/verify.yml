@@ -30,7 +30,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build, test, and run verification programs
+        env:
+          GROK_PREVIEW_DIRECTORY: ${{ runner.temp }}/grok-previews
         run: bash scripts/verify-swift.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: grok-login-previews-${{ matrix.arch }}
+          path: ${{ runner.temp }}/grok-previews
       - name: Verify stock backend capability and build app bundle
         env:
           GH_TOKEN: ${{ github.token }}
@@ -42,6 +48,7 @@ jobs:
           if [ "$TARGET_ARCH" = arm64 ]; then
             src/Sources/Resources/cli-proxy-api-plus --help > "$RUNNER_TEMP/bundled-help.txt" 2>&1
             grep -q -- '-xai-login' "$RUNNER_TEMP/bundled-help.txt"
+            python3 scripts/verify-grok-backend.py src/Sources/Resources/cli-proxy-api-plus
           fi
           # Package the same official release for both architectures, following
           # release.yml. Downloading here never updates the repository's binary.
@@ -60,6 +67,7 @@ jobs:
           bash create-app-bundle.sh
           VibeProxy.app/Contents/Resources/cli-proxy-api-plus --help > "$RUNNER_TEMP/packaged-help.txt" 2>&1
           grep -q -- '-xai-login' "$RUNNER_TEMP/packaged-help.txt"
+          python3 scripts/verify-grok-backend.py VibeProxy.app/Contents/Resources/cli-proxy-api-plus
           file VibeProxy.app/Contents/MacOS/CLIProxyMenuBar | grep "$TARGET_ARCH"
           file VibeProxy.app/Contents/Resources/cli-proxy-api-plus | grep "$TARGET_ARCH"
           cat "$RUNNER_TEMP/packaged-help.txt"

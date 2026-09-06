@@ -1,5 +1,7 @@
 import XCTest
 import Combine
+import AppKit
+import SwiftUI
 @testable import CLIProxyMenuBar
 
 final class GrokLoginTests: XCTestCase {
@@ -141,6 +143,43 @@ final class GrokLoginTests: XCTestCase {
         login.start(executableURL: directory.appendingPathComponent("missing"), arguments: [], authDirectory: directory)
         assertFailed(login.state)
         XCTAssertFalse(login.state.isActive)
+    }
+
+    @MainActor
+    func testDeviceCodeSheetFitsAndRendersInBothAppearances() throws {
+        _ = NSApplication.shared
+        let login = GrokLoginController()
+        let waiting = expectation(description: "device code ready for preview")
+        var ready = false
+        let subscription = login.$state.sink { state in
+            if case .awaitingAuthorization(_, let code) = state, code != nil, !ready {
+                ready = true
+                waiting.fulfill()
+            }
+        }
+        login.start(executableURL: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", "printf 'https://auth.x.ai/device?user_code=ABCD-EFGH\\nThen enter this code: ABCD-EFGH\\n'; exec sleep 20"], authDirectory: directory)
+        defer { login.cancel() }
+        wait(for: [waiting], timeout: 5)
+        // Keep exported previews optional for normal local test runs.
+        for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+            let view = NSHostingView(rootView: GrokLoginSheet(login: login, retry: {}))
+            view.appearance = NSAppearance(named: appearance)
+            let size = view.fittingSize
+            XCTAssertEqual(size.width, 440, accuracy: 1)
+            XCTAssertLessThan(size.height, 600)
+            XCTAssertGreaterThan(size.height, 200)
+            view.setFrameSize(size)
+            view.layoutSubtreeIfNeeded()
+            if let output = ProcessInfo.processInfo.environment["GROK_PREVIEW_DIRECTORY"] {
+                let target = URL(fileURLWithPath: output)
+                try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+                let bitmap = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+                view.cacheDisplay(in: view.bounds, to: bitmap)
+                let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+                try data.write(to: target.appendingPathComponent("grok-login-\(name).png"))
+            }
+        }
+        withExtendedLifetime(subscription) {}
     }
 
     private func credential() throws -> URL {
