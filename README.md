@@ -11,9 +11,9 @@
 <a href="https://github.com/automazeio/vibeproxy"><img alt="Star this repo" src="https://img.shields.io/github/stars/automazeio/vibeproxy.svg?style=social&amp;label=Star%20this%20repo&amp;maxAge=60" style="max-width: 100%;"></a></p>
 </p>
 
-**Stop paying twice for AI.** VibeProxy is a beautiful native macOS menu bar app that lets you use your existing Claude Code, ChatGPT, **Gemini**, **Kimi**, **Qwen**, **Antigravity**, **xAI/Grok**, and **Z.AI GLM** subscriptions with powerful AI coding tools like **[Factory Droids](https://app.factory.ai/r/FM8BJHFQ)**.
+**Stop paying twice for AI.** VibeProxy is a beautiful native macOS menu bar app that lets you use your existing Claude Code, ChatGPT, **Gemini**, **Kimi**, **Qwen**, **Antigravity**, **Grok Build**, and **Z.AI GLM** subscriptions with powerful AI coding tools like **[Factory Droids](https://app.factory.ai/r/FM8BJHFQ)**.
 
-Built on [CLIProxyAPIPlus](https://github.com/router-for-me/CLIProxyAPIPlus), it handles OAuth authentication, token management, and API routing automatically. One click to authenticate, zero friction to code.
+Built on [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI), it handles OAuth authentication, token management, and API routing automatically. One click to authenticate, zero friction to code.
 
 
 <p align="center">
@@ -82,7 +82,39 @@ When you add an OAuth account:
 3. VibeProxy automatically detects your credentials
 4. Status updates to show you're connected
 
-xAI/Grok uses browser-based OAuth through your Grok account. It does not accept an xAI API key in the xAI/Grok service row; configure an API-key-based xAI endpoint as a custom provider instead.
+### Grok Build (OAuth)
+
+1. Use an xAI account with **Grok Build access**. Model availability and usage limits depend on your account; an API key or access to web chat alone does not establish Build eligibility.
+2. In Settings, click **Sign In** beside **Grok Build (OAuth)**.
+3. Complete sign-in in the browser. The sheet shows the verification link and device code, with **Open Browser** and **Copy Code** controls if needed.
+4. Wait for **Connected as …**. You can cancel or retry an expired/denied sign-in from the sheet.
+
+Credentials are saved in `~/.cli-proxy-api/` and refreshed by the bundled CLIProxyAPI. Existing xAI credential files are detected automatically. Account removal and enable/disable controls work like the other OAuth providers. Custom API-key providers named `xai` remain separate and retain their own enabled state.
+
+The stock backend routes OAuth HTTP chat to Grok Build by default. VibeProxy preserves explicit upstream credential/configuration overrides. This integration covers HTTP Chat Completions and Responses, including streaming and coding tools; it does not add Grok CLI client configuration or WebSocket support.
+
+Discover available model IDs through the public proxy port (requires `curl` and `jq`):
+
+```sh
+# Use your configured local proxy API key if one is required.
+export VIBEPROXY_API_KEY="dummy-not-used"
+curl -fsS http://localhost:8317/v1/models \
+  -H "Authorization: Bearer $VIBEPROXY_API_KEY" | jq -r '.data[].id'
+```
+
+Choose a Grok text model returned by that command. The catalog may include `grok-4.6`, `grok-4.5`, or `grok-build-0.1`; listing a model does not guarantee your account is entitled to use it. For Factory Droid, add an entry to `custom_models` in `~/.factory/config.json`, following [Factory setup](FACTORY_SETUP.md):
+
+```json
+{
+  "model_display_name": "Grok Build",
+  "model": "REPLACE_WITH_DISCOVERED_GROK_MODEL_ID",
+  "base_url": "http://localhost:8317/v1",
+  "api_key": "dummy-not-used",
+  "provider": "generic-chat-completion-api"
+}
+```
+
+Replace the model placeholder with the exact discovered ID and the API key with your local proxy key if configured. No xAI API key is needed for this OAuth service.
 
 When you click "Add Account" for Z.AI GLM:
 1. Paste your provider API key
@@ -114,8 +146,8 @@ VibeProxy/
 │   └── Resources/
 │       ├── AppIcon.iconset     # App icon
 │       ├── AppIcon.icns        # App icon
-│       ├── cli-proxy-api-plus  # CLIProxyAPIPlus binary
-│       ├── config.yaml         # CLIProxyAPIPlus config
+│       ├── cli-proxy-api-plus  # CLIProxyAPI binary
+│       ├── config.yaml         # CLIProxyAPI config
 │       ├── icon-active.png     # Menu bar icon (active)
 │       ├── icon-inactive.png   # Menu bar icon (inactive)
 │       ├── icon-claude.png     # Claude Code service icon
@@ -141,9 +173,9 @@ VibeProxy/
 
 ## Credits
 
-VibeProxy is built on top of [CLIProxyAPIPlus](https://github.com/router-for-me/CLIProxyAPIPlus), an excellent unified proxy server for AI services with support for third-party providers.
+VibeProxy is built on top of [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI), an excellent unified proxy server for AI services with support for third-party providers.
 
-Special thanks to the CLIProxyAPIPlus project for providing the core functionality that makes VibeProxy possible.
+Special thanks to the CLIProxyAPI project for providing the core functionality that makes VibeProxy possible.
 
 ## License
 

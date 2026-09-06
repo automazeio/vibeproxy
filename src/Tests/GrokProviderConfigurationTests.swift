@@ -18,7 +18,9 @@ final class GrokProviderConfigurationTests: XCTestCase {
             for customEnabled in [false, true] {
                 let result = compose(base, oauthEnabled: oauthEnabled, customEnabled: customEnabled)
                 let exclusions = ConfigComposer.stringKeyedDictionary(result["oauth-excluded-models"]!)!
-                XCTAssertEqual(Set(ConfigComposer.stringArray(exclusions["xai"])), oauthEnabled ? ["grok-hidden"] : ["grok-hidden", "*"])
+                // A disabled provider's runtime exclusion is '*'. Recomposition
+                // from the untouched base restores individual exclusions.
+                XCTAssertEqual(ConfigComposer.stringArray(exclusions["xai"]), oauthEnabled ? ["grok-hidden"] : ["*"])
                 XCTAssertEqual(ConfigComposer.stringArray(exclusions["claude"]), ["claude-hidden"])
                 XCTAssertEqual(result["port"] as? Int, 8318)
                 let providers = ConfigComposer.stringKeyedDictionaryArray(result["openai-compatibility"])
@@ -32,6 +34,9 @@ final class GrokProviderConfigurationTests: XCTestCase {
                 }
             }
         }
+        let reenabled = compose(base, oauthEnabled: true, customEnabled: true)
+        let exclusions = ConfigComposer.stringKeyedDictionary(reenabled["oauth-excluded-models"]!)!
+        XCTAssertEqual(ConfigComposer.stringArray(exclusions["xai"]), ["grok-hidden"])
     }
 
     func testManualWildcardRemainsWhenOAuthIsEnabledInUI() {
