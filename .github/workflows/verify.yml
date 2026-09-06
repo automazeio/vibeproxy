@@ -1,0 +1,65 @@
+name: Verify macOS
+
+on:
+  pull_request:
+  push:
+    branches-ignore: ['bump-cliproxyapi-**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+            asset: aarch64
+          - runner: macos-15-intel
+            arch: x86_64
+            asset: amd64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build, test, and run verification programs
+        run: bash scripts/verify-swift.sh
+      - name: Verify stock backend capability and build app bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_ARCH: ${{ matrix.arch }}
+          ASSET_ARCH: ${{ matrix.asset }}
+        run: |
+          set -euo pipefail
+          # Exercise the checked-in backend directly on its native architecture.
+          if [ "$TARGET_ARCH" = arm64 ]; then
+            src/Sources/Resources/cli-proxy-api-plus --help > "$RUNNER_TEMP/bundled-help.txt" 2>&1
+            grep -q -- '-xai-login' "$RUNNER_TEMP/bundled-help.txt"
+          fi
+          # Package the same official release for both architectures, following
+          # release.yml. Downloading here never updates the repository's binary.
+          TAG=$(gh release view --repo router-for-me/CLIProxyAPI --json tagName -q .tagName)
+          VERSION=${TAG#v}
+          ASSET="CLIProxyAPI_${VERSION}_darwin_${ASSET_ARCH}.tar.gz"
+          mkdir -p "$RUNNER_TEMP/backend"
+          gh release download "$TAG" --repo router-for-me/CLIProxyAPI -p "$ASSET" -p checksums.txt -D "$RUNNER_TEMP/backend"
+          cd "$RUNNER_TEMP/backend"
+          grep " $ASSET$" checksums.txt | shasum -a 256 -c -
+          tar -xzf "$ASSET"
+          BINARY=$(find . -type f \( -name cli-proxy-api -o -name CLIProxyAPI \) | head -1)
+          test -n "$BINARY"
+          cp "$BINARY" "$GITHUB_WORKSPACE/src/Sources/Resources/cli-proxy-api-plus"
+          cd "$GITHUB_WORKSPACE"
+          bash create-app-bundle.sh
+          VibeProxy.app/Contents/Resources/cli-proxy-api-plus --help > "$RUNNER_TEMP/packaged-help.txt" 2>&1
+          grep -q -- '-xai-login' "$RUNNER_TEMP/packaged-help.txt"
+          file VibeProxy.app/Contents/MacOS/CLIProxyMenuBar | grep "$TARGET_ARCH"
+          file VibeProxy.app/Contents/Resources/cli-proxy-api-plus | grep "$TARGET_ARCH"
+          cat "$RUNNER_TEMP/packaged-help.txt"

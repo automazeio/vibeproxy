@@ -506,6 +506,7 @@ struct SettingsView: View {
     @State private var authenticatingService: ServiceType? = nil
     @State private var authenticatingCustomProviderID: String? = nil
     @State private var showingAuthResult = false
+    @State private var showingGrokLogin = false
     @State private var authResultMessage = ""
     @State private var authResultSuccess = false
     @State private var showingQwenEmailPrompt = false
@@ -709,7 +710,7 @@ struct SettingsView: View {
                         iconSystemName: "sparkles",
                         accounts: authManager.accounts(for: .xai),
                         isAuthenticating: authenticatingService == .xai,
-                        helpText: "Sign in with your Grok account to use xAI through OAuth. This is not an xAI API key.",
+                        helpText: "Sign in with an account that has Grok Build access. Models and usage limits depend on your account.",
                         isEnabled: serverManager.isProviderEnabled(ProviderCatalog.xaiOAuthProviderStateKey),
                         isToggleLocked: serverManager.isProviderToggleLocked(ProviderCatalog.xaiOAuthProviderStateKey),
                         toggleHelpText: serverManager.providerConfigLockReason(ProviderCatalog.xaiOAuthProviderStateKey),
@@ -722,7 +723,7 @@ struct SettingsView: View {
                             serverManager.setProviderEnabled(ProviderCatalog.xaiOAuthProviderStateKey, enabled: enabled)
                         },
                         connectButtonTitle: "Sign In",
-                        emptyStateText: "Sign in with your Grok account (OAuth, not an API key)"
+                        emptyStateText: "Sign in with your Grok Build account"
                     ) { EmptyView() }
 
                     ServiceRow(
@@ -781,7 +782,7 @@ struct SettingsView: View {
                     Text("VibeProxy \(appVersion) was made possible thanks to")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    Link("CLIProxyAPIPlus", destination: URL(string: "https://github.com/router-for-me/CLIProxyAPIPlus")!)
+                    Link("CLIProxyAPI", destination: URL(string: "https://github.com/router-for-me/CLIProxyAPI")!)
                         .font(.caption)
                         .underline()
                         .foregroundColor(.secondary)
@@ -903,6 +904,18 @@ struct SettingsView: View {
             .padding(24)
             .frame(width: 420)
         }
+        .sheet(isPresented: $showingGrokLogin, onDismiss: {
+            serverManager.grokLogin.cancel()
+        }) {
+            GrokLoginSheet(login: serverManager.grokLogin) { connectService(.xai) }
+        }
+        .onReceive(serverManager.grokLogin.$state) { state in
+            if state.isActive {
+                authenticatingService = .xai
+            } else if authenticatingService == .xai {
+                authenticatingService = nil
+            }
+        }
         .onAppear {
             authManager.checkAuthStatus()
             serverManager.reloadCustomProviders()
@@ -977,6 +990,11 @@ struct SettingsView: View {
         }
         
         serverManager.runAuthCommand(command) { success, output in
+            if serviceType == .xai {
+                if !success { serverManager.grokLogin.fail(output) }
+                showingGrokLogin = true
+                return
+            }
             NSLog("[SettingsView] Auth completed - success: %d, output: %@", success, output)
             DispatchQueue.main.async {
                 self.authenticatingService = nil
