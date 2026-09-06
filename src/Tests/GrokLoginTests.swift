@@ -162,13 +162,21 @@ final class GrokLoginTests: XCTestCase {
         wait(for: [waiting], timeout: 5)
         // Keep exported previews optional for normal local test runs.
         for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
-            let view = NSHostingView(rootView: GrokLoginSheet(login: login, retry: {}))
+            let view = NSHostingView(rootView: GrokLoginSheet(login: login, retry: {})
+                .background(Color(nsColor: .windowBackgroundColor))
+                .environment(\.colorScheme, name == "dark" ? .dark : .light))
             view.appearance = NSAppearance(named: appearance)
             let size = view.fittingSize
             XCTAssertEqual(size.width, 440, accuracy: 1)
             XCTAssertLessThan(size.height, 600)
             XCTAssertGreaterThan(size.height, 200)
             view.setFrameSize(size)
+            let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+            window.appearance = view.appearance
+            window.contentView = view
+            window.orderFront(nil)
+            defer { window.orderOut(nil) }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.2))
             view.layoutSubtreeIfNeeded()
             if let output = ProcessInfo.processInfo.environment["GROK_PREVIEW_DIRECTORY"] {
                 let target = URL(fileURLWithPath: output)
