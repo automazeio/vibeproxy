@@ -192,6 +192,39 @@ jobs:
             codesign -dv "VibeProxy-${{ matrix.arch }}.dmg" || echo "⚠️ DMG not signed (non-fatal)"
           fi
 
+      - name: Notarize DMG
+        run: |
+          if [ -f "VibeProxy-${{ matrix.arch }}.dmg" ]; then
+            echo "Submitting DMG for notarization..."
+            SUBMIT_OUTPUT=$(xcrun notarytool submit "VibeProxy-${{ matrix.arch }}.dmg" \
+              --apple-id "${{ secrets.APPLE_ID }}" \
+              --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+              --password "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" \
+              --wait --output-format json)
+
+            echo "$SUBMIT_OUTPUT"
+            SUBMISSION_ID=$(echo "$SUBMIT_OUTPUT" | jq -r '.id')
+            STATUS=$(echo "$SUBMIT_OUTPUT" | jq -r '.status')
+
+            if [ "$STATUS" != "Accepted" ]; then
+              echo "❌ DMG notarization failed with status: $STATUS"
+              echo "📋 Getting detailed log..."
+              xcrun notarytool log "$SUBMISSION_ID" \
+                --apple-id "${{ secrets.APPLE_ID }}" \
+                --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+                --password "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}"
+              exit 1
+            fi
+
+            echo "✅ DMG notarization succeeded! Stapling ticket..."
+            xcrun stapler staple "VibeProxy-${{ matrix.arch }}.dmg"
+            xcrun stapler validate "VibeProxy-${{ matrix.arch }}.dmg"
+            spctl --assess --type open --context context:primary-signature -v "VibeProxy-${{ matrix.arch }}.dmg"
+            echo "✅ DMG successfully notarized and stapled!"
+          else
+            echo "⚠️ DMG not found, skipping DMG notarization"
+          fi
+
       - name: Create ZIP archive
         run: |
           ditto -c -k --sequesterRsrc --keepParent "VibeProxy.app" "VibeProxy-${{ matrix.arch }}.zip"
