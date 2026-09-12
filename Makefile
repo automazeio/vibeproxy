@@ -1,4 +1,4 @@
-.PHONY: build app install clean run help
+.PHONY: build app install clean run test help
 
 help: ## Show this help message
 	@echo "VibeProxy - macOS Menu Bar App"
@@ -40,10 +40,10 @@ clean: ## Clean build artifacts
 	@rm -rf src/Sources/Resources/static
 	@echo "✅ Clean complete"
 
-test: ## Run a quick test build
-	@echo "🧪 Testing build..."
-	@cd src && swift build
-	@echo "✅ Test build successful"
+test: ## Run the Swift test suite
+	@echo "🧪 Running tests..."
+	@cd src && swift test
+	@echo "✅ Tests passed"
 
 info: ## Show project information
 	@echo "Project: VibeProxy - macOS Menu Bar App"

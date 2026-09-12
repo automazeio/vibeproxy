@@ -66,7 +66,6 @@ struct AccountRowView: View {
 /// Vercel AI Gateway controls shown in Claude expanded section
 struct VercelGatewayControls: View {
     @ObservedObject var serverManager: ServerManager
-    @State private var showingSaved = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -86,21 +85,6 @@ struct VercelGatewayControls: View {
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 220)
                         .font(.caption)
-                    
-                    if showingSaved {
-                        Text("Saved")
-                            .font(.caption)
-                            .foregroundColor(.green)
-                    } else {
-                        Button("Save") {
-                            showingSaved = true
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                                showingSaved = false
-                            }
-                        }
-                        .controlSize(.small)
-                        .disabled(serverManager.vercelApiKey.isEmpty)
-                    }
                 }
             }
         }
@@ -507,7 +491,7 @@ struct CustomProviderRow: View {
 
 struct SettingsView: View {
     @ObservedObject var serverManager: ServerManager
-    @StateObject private var authManager = AuthManager()
+    @ObservedObject var authManager: AuthManager
     @State private var launchAtLogin = false
     @State private var authenticatingService: ServiceType? = nil
     @State private var authenticatingCustomProviderID: String? = nil
@@ -521,7 +505,7 @@ struct SettingsView: View {
     @State private var selectedCustomProvider: CustomProviderDefinition?
     @State private var customProviderApiKey = ""
     @State private var expandedRowCount = 0
-    
+
     private enum Timing {
         static let serverRestartDelay: TimeInterval = 0.3
     }
@@ -974,7 +958,7 @@ struct SettingsView: View {
         }
         
         serverManager.runAuthCommand(command) { success, output in
-            NSLog("[SettingsView] Auth completed - success: %d, output: %@", success, output)
+            NSLog("[SettingsView] Auth completed - success: %d", success)
             DispatchQueue.main.async {
                 self.authenticatingService = nil
                 
@@ -1022,7 +1006,7 @@ struct SettingsView: View {
         NSLog("[SettingsView] Starting Qwen authentication")
         
         serverManager.runAuthCommand(.qwenLogin(email: email)) { success, output in
-            NSLog("[SettingsView] Auth completed - success: %d, output: %@", success, output)
+            NSLog("[SettingsView] Auth completed - success: %d", success)
             DispatchQueue.main.async {
                 self.authenticatingService = nil
                 self.qwenEmail = ""
@@ -1045,7 +1029,7 @@ struct SettingsView: View {
         NSLog("[SettingsView] Adding Z.AI API key")
         
         serverManager.saveZaiApiKey(apiKey) { success, output in
-            NSLog("[SettingsView] Z.AI key save completed - success: %d, output: %@", success, output)
+            NSLog("[SettingsView] Z.AI key save completed - success: %d", success)
             DispatchQueue.main.async {
                 self.authenticatingService = nil
                 self.zaiApiKey = ""
@@ -1066,10 +1050,10 @@ struct SettingsView: View {
     
     private func startCustomProviderAuth(provider: CustomProviderDefinition, apiKey: String) {
         authenticatingCustomProviderID = provider.id
-        NSLog("[SettingsView] Adding API key for custom provider %@", provider.id)
+        NSLog("[SettingsView] Adding custom provider API key")
         
         serverManager.saveCustomProviderAPIKey(providerID: provider.id, apiKey: apiKey) { success, output in
-            NSLog("[SettingsView] Custom provider key save completed - success: %d, output: %@", success, output)
+            NSLog("[SettingsView] Custom provider key save completed - success: %d", success)
             DispatchQueue.main.async {
                 self.authenticatingCustomProviderID = nil
                 self.customProviderApiKey = ""
