@@ -426,6 +426,8 @@ enum ConfigComposer {
 
     private static func defaultZAIModels() -> [[String: String]] {
         [
+            ["name": "glm-5.2", "alias": "glm-5.2"],
+            ["name": "glm-5", "alias": "glm-5"],
             ["name": "glm-4.7", "alias": "glm-4.7"],
             ["name": "glm-4-plus", "alias": "glm-4-plus"],
             ["name": "glm-4-air", "alias": "glm-4-air"],
