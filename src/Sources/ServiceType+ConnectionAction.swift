@@ -21,6 +21,8 @@ extension ServiceType {
             return .promptForQwenEmail
         case .antigravity:
             return .authCommand(.antigravityLogin)
+        case .xai:
+            return .authCommand(.xaiLogin)
         case .zai:
             return .promptForZAIAPIKey
         }

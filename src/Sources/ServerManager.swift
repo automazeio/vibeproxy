@@ -51,6 +51,7 @@ private struct RingBuffer<Element> {
 }
 
 class ServerManager: ObservableObject {
+    let grokLogin = GrokLoginController()
     private var process: Process?
     private var activeAuthProcess: Process?
     @Published private(set) var isRunning = false
@@ -205,6 +206,7 @@ class ServerManager: ObservableObject {
     
     deinit {
         // Ensure cleanup on deallocation
+        grokLogin.cancel()
         terminateActiveAuthProcessIfNeeded(reason: "deinit cleanup")
         stop()
         killOrphanedProcesses()
@@ -349,6 +351,7 @@ class ServerManager: ObservableObject {
     }
     
     func runAuthCommand(_ command: AuthCommand, completion: @escaping (Bool, String) -> Void) {
+        grokLogin.cancel()
         terminateActiveAuthProcessIfNeeded(reason: "starting a new auth attempt")
         cleanupStaleAuthProcesses()
 
@@ -391,6 +394,19 @@ class ServerManager: ObservableObject {
             qwenEmail = email
         case .antigravityLogin:
             authProcess.arguments = ["--config", configPath, "-antigravity-login"]
+        case .xaiLogin:
+            authProcess.arguments = ["--config", configPath, "--xai-login"]
+        }
+
+        if command == .xaiLogin {
+            grokLogin.start(
+                executableURL: URL(fileURLWithPath: bundledPath),
+                arguments: authProcess.arguments ?? [],
+                authDirectory: authDirectoryURL()
+            )
+            // Only acknowledges dispatch. The Grok sheet observes actual authorization.
+            completion(true, "")
+            return
         }
         
         // Create pipes for output
@@ -586,6 +602,7 @@ class ServerManager: ObservableObject {
             "cli-proxy-api-plus.*-github-copilot-login",
             "cli-proxy-api-plus.*-qwen-login",
             "cli-proxy-api-plus.*-antigravity-login",
+            "cli-proxy-api-plus.*-xai-login",
             "cli-proxy-api-plus.* -login"
         ]
 
@@ -1238,4 +1255,5 @@ enum AuthCommand: Equatable {
     case kimiLogin
     case qwenLogin(email: String)
     case antigravityLogin
+    case xaiLogin
 }
