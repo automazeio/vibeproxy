@@ -1,16 +1,16 @@
 import Foundation
 
-struct ZAIAPIKeyLoadIssue: Equatable {
+struct ManagedProviderAPIKeyLoadIssue: Equatable {
     let filePath: URL
     let message: String
 }
 
-struct ZAIAPIKeyLoadResult: Equatable {
+struct ManagedProviderAPIKeyLoadResult: Equatable {
     let apiKeys: [String]
-    let issues: [ZAIAPIKeyLoadIssue]
+    let issues: [ManagedProviderAPIKeyLoadIssue]
 }
 
-enum ZAIAPIKeyStoreError: LocalizedError {
+enum ManagedProviderAPIKeyStoreError: LocalizedError {
     case failedToCreateDirectory(String)
     case failedToSerializeKey(String)
     case failedToWriteKey(String)
@@ -31,18 +31,25 @@ enum ZAIAPIKeyStoreError: LocalizedError {
     }
 }
 
-final class ZAIAPIKeyStore {
-    static let authType = "zai"
+private struct ManagedProviderAPIKeyDescriptor {
+    let authType: String
+    let filePrefix: String
+    let displayName: String
+}
 
+private final class ManagedProviderAPIKeyStore {
+    private let descriptor: ManagedProviderAPIKeyDescriptor
     private let directoryURL: URL
     private let fileManager: FileManager
     private let queue: DispatchQueue
 
     init(
+        descriptor: ManagedProviderAPIKeyDescriptor,
         directoryURL: URL,
         fileManager: FileManager = .default,
-        queueLabel: String = "io.automaze.vibeproxy.zai-api-keys"
+        queueLabel: String
     ) {
+        self.descriptor = descriptor
         self.directoryURL = directoryURL
         self.fileManager = fileManager
         self.queue = DispatchQueue(label: queueLabel, qos: .userInitiated)
@@ -56,15 +63,15 @@ final class ZAIAPIKeyStore {
             do {
                 try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
             } catch {
-                throw ZAIAPIKeyStoreError.failedToCreateDirectory(
+                throw ManagedProviderAPIKeyStoreError.failedToCreateDirectory(
                     "Failed to create auth directory at \(directoryURL.path): \(error.localizedDescription)"
                 )
             }
 
-            let filename = "zai-\(UUID().uuidString.prefix(8)).json"
+            let filename = "\(descriptor.filePrefix)-\(UUID().uuidString.prefix(8)).json"
             let filePath = directoryURL.appendingPathComponent(filename)
             let authData: [String: Any] = [
-                "type": Self.authType,
+                "type": descriptor.authType,
                 "email": maskAPIKey(apiKey),
                 "api_key": apiKey,
                 "created": createdAt
@@ -74,8 +81,8 @@ final class ZAIAPIKeyStore {
             do {
                 jsonData = try JSONSerialization.data(withJSONObject: authData, options: .prettyPrinted)
             } catch {
-                throw ZAIAPIKeyStoreError.failedToSerializeKey(
-                    "Failed to serialize Z.AI API key: \(error.localizedDescription)"
+                throw ManagedProviderAPIKeyStoreError.failedToSerializeKey(
+                    "Failed to serialize \(descriptor.displayName) API key: \(error.localizedDescription)"
                 )
             }
 
@@ -83,8 +90,8 @@ final class ZAIAPIKeyStore {
                 try jsonData.write(to: filePath, options: .atomic)
                 try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: filePath.path)
             } catch {
-                throw ZAIAPIKeyStoreError.failedToWriteKey(
-                    "Failed to write Z.AI API key file at \(filePath.path): \(error.localizedDescription)"
+                throw ManagedProviderAPIKeyStoreError.failedToWriteKey(
+                    "Failed to write \(descriptor.displayName) API key file at \(filePath.path): \(error.localizedDescription)"
                 )
             }
 
@@ -92,33 +99,33 @@ final class ZAIAPIKeyStore {
         }
     }
 
-    func loadActiveAPIKeys() -> ZAIAPIKeyLoadResult {
+    func loadActiveAPIKeys() -> ManagedProviderAPIKeyLoadResult {
         queue.sync {
             guard let files = try? fileManager.contentsOfDirectory(
                 at: directoryURL,
                 includingPropertiesForKeys: nil
             ) else {
-                return ZAIAPIKeyLoadResult(apiKeys: [], issues: [])
+                return ManagedProviderAPIKeyLoadResult(apiKeys: [], issues: [])
             }
 
             var apiKeys: [String] = []
-            var issues: [ZAIAPIKeyLoadIssue] = []
+            var issues: [ManagedProviderAPIKeyLoadIssue] = []
 
             for file in files where isManagedKeyFile(file) {
                 do {
                     if let apiKey = try loadActiveAPIKey(at: file) {
                         apiKeys.append(apiKey)
                     }
-                } catch let error as ZAIAPIKeyStoreError {
+                } catch let error as ManagedProviderAPIKeyStoreError {
                     issues.append(
-                        ZAIAPIKeyLoadIssue(
+                        ManagedProviderAPIKeyLoadIssue(
                             filePath: file,
                             message: error.localizedDescription
                         )
                     )
                 } catch {
                     issues.append(
-                        ZAIAPIKeyLoadIssue(
+                        ManagedProviderAPIKeyLoadIssue(
                             filePath: file,
                             message: "Unexpected error while loading \(file.path): \(error.localizedDescription)"
                         )
@@ -126,7 +133,7 @@ final class ZAIAPIKeyStore {
                 }
             }
 
-            return ZAIAPIKeyLoadResult(apiKeys: apiKeys, issues: issues)
+            return ManagedProviderAPIKeyLoadResult(apiKeys: apiKeys, issues: issues)
         }
     }
 
@@ -135,8 +142,8 @@ final class ZAIAPIKeyStore {
         do {
             data = try Data(contentsOf: filePath)
         } catch {
-            throw ZAIAPIKeyStoreError.failedToReadKey(
-                "Failed to read Z.AI API key file at \(filePath.path): \(error.localizedDescription)"
+            throw ManagedProviderAPIKeyStoreError.failedToReadKey(
+                "Failed to read \(descriptor.displayName) API key file at \(filePath.path): \(error.localizedDescription)"
             )
         }
 
@@ -144,24 +151,24 @@ final class ZAIAPIKeyStore {
         do {
             jsonObject = try JSONSerialization.jsonObject(with: data)
         } catch {
-            throw ZAIAPIKeyStoreError.invalidKeyJSON(
-                "Z.AI API key file at \(filePath.path) contains invalid JSON: \(error.localizedDescription)"
+            throw ManagedProviderAPIKeyStoreError.invalidKeyJSON(
+                "\(descriptor.displayName) API key file at \(filePath.path) contains invalid JSON: \(error.localizedDescription)"
             )
         }
 
         guard let json = ConfigComposer.stringKeyedDictionary(jsonObject) else {
-            throw ZAIAPIKeyStoreError.malformedKey(
-                "Z.AI API key file at \(filePath.path) must contain a JSON object."
+            throw ManagedProviderAPIKeyStoreError.malformedKey(
+                "\(descriptor.displayName) API key file at \(filePath.path) must contain a JSON object."
             )
         }
-        guard (json["type"] as? String) == Self.authType else {
-            throw ZAIAPIKeyStoreError.malformedKey(
-                "Z.AI API key file at \(filePath.path) has an unexpected type."
+        guard (json["type"] as? String) == descriptor.authType else {
+            throw ManagedProviderAPIKeyStoreError.malformedKey(
+                "\(descriptor.displayName) API key file at \(filePath.path) has an unexpected type."
             )
         }
         guard let apiKey = json["api_key"] as? String, !apiKey.isEmpty else {
-            throw ZAIAPIKeyStoreError.malformedKey(
-                "Z.AI API key file at \(filePath.path) is missing an api_key."
+            throw ManagedProviderAPIKeyStoreError.malformedKey(
+                "\(descriptor.displayName) API key file at \(filePath.path) is missing an api_key."
             )
         }
         guard json["disabled"] as? Bool != true else {
@@ -171,7 +178,7 @@ final class ZAIAPIKeyStore {
     }
 
     private func isManagedKeyFile(_ file: URL) -> Bool {
-        file.lastPathComponent.hasPrefix("zai-") && file.pathExtension == "json"
+        file.lastPathComponent.hasPrefix("\(descriptor.filePrefix)-") && file.pathExtension == "json"
     }
 
     private func maskAPIKey(_ apiKey: String) -> String {
@@ -179,5 +186,69 @@ final class ZAIAPIKeyStore {
             return apiKey
         }
         return String(apiKey.prefix(8)) + "..." + String(apiKey.suffix(4))
+    }
+}
+
+final class ZAIAPIKeyStore {
+    private let backingStore: ManagedProviderAPIKeyStore
+
+    init(
+        directoryURL: URL,
+        fileManager: FileManager = .default,
+        queueLabel: String = "io.automaze.vibeproxy.zai-api-keys"
+    ) {
+        self.backingStore = ManagedProviderAPIKeyStore(
+            descriptor: ManagedProviderAPIKeyDescriptor(
+                authType: ProviderCatalog.managedZAIProviderName,
+                filePrefix: ProviderCatalog.managedZAIProviderName,
+                displayName: "Z.AI"
+            ),
+            directoryURL: directoryURL,
+            fileManager: fileManager,
+            queueLabel: queueLabel
+        )
+    }
+
+    func save(
+        apiKey: String,
+        createdAt: String = ISO8601DateFormatter().string(from: Date())
+    ) throws -> URL {
+        try backingStore.save(apiKey: apiKey, createdAt: createdAt)
+    }
+
+    func loadActiveAPIKeys() -> ManagedProviderAPIKeyLoadResult {
+        backingStore.loadActiveAPIKeys()
+    }
+}
+
+final class MiniMaxAPIKeyStore {
+    private let backingStore: ManagedProviderAPIKeyStore
+
+    init(
+        directoryURL: URL,
+        fileManager: FileManager = .default,
+        queueLabel: String = "io.automaze.vibeproxy.minimax-api-keys"
+    ) {
+        self.backingStore = ManagedProviderAPIKeyStore(
+            descriptor: ManagedProviderAPIKeyDescriptor(
+                authType: ProviderCatalog.managedMiniMaxProviderName,
+                filePrefix: ProviderCatalog.managedMiniMaxProviderName,
+                displayName: "MiniMax"
+            ),
+            directoryURL: directoryURL,
+            fileManager: fileManager,
+            queueLabel: queueLabel
+        )
+    }
+
+    func save(
+        apiKey: String,
+        createdAt: String = ISO8601DateFormatter().string(from: Date())
+    ) throws -> URL {
+        try backingStore.save(apiKey: apiKey, createdAt: createdAt)
+    }
+
+    func loadActiveAPIKeys() -> ManagedProviderAPIKeyLoadResult {
+        backingStore.loadActiveAPIKeys()
     }
 }

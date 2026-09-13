@@ -9,6 +9,7 @@ struct ConfigInputFingerprintSpec {
             withTemporaryDirectory(recorder: recorder) { directoryURL in
                 writeText("port: 8317\n", to: directoryURL.appendingPathComponent("config.yaml"), recorder: recorder)
                 writeText("{\"type\":\"zai\",\"api_key\":\"zai-1\"}\n", to: directoryURL.appendingPathComponent("zai-a.json"), recorder: recorder)
+                writeText("{\"type\":\"minimax\",\"api_key\":\"mini-1\"}\n", to: directoryURL.appendingPathComponent("minimax-a.json"), recorder: recorder)
                 writeText("{\"type\":\"openai-compat\",\"provider\":\"nvidia\",\"api_key\":\"nvapi-1\"}\n", to: directoryURL.appendingPathComponent("openai-compat-nvidia-a.json"), recorder: recorder)
                 writeText("{\"type\":\"claude\"}\n", to: directoryURL.appendingPathComponent("claude.json"), recorder: recorder)
                 writeText("generated: true\n", to: directoryURL.appendingPathComponent("merged-config.yaml"), recorder: recorder)
@@ -18,7 +19,7 @@ struct ConfigInputFingerprintSpec {
 
                 expectEqual(
                     names,
-                    ["config.yaml", "openai-compat-nvidia-a.json", "zai-a.json"],
+                    ["config.yaml", "minimax-a.json", "openai-compat-nvidia-a.json", "zai-a.json"],
                     "only additive config and managed API key files should affect the fingerprint",
                     recorder: recorder
                 )
