@@ -54,10 +54,12 @@ class ServerManager: ObservableObject {
     private var process: Process?
     private var activeAuthProcess: Process?
     @Published private(set) var isRunning = false
-    private(set) var port = 8317
+    private(set) var port = ProxyPorts.backend
     @Published private(set) var customProviders: [CustomProviderDefinition] = []
     @Published private(set) var customProviderCredentials: [String: [CustomProviderCredential]] = [:]
     @Published private(set) var configErrorMessage: String?
+    let quotaStore: QuotaStore
+    private let managementSecret: String
 
     /// Provider enabled states - when disabled, models are excluded via oauth-excluded-models
     @Published var enabledProviders: [String: Bool] = [:] {
@@ -133,6 +135,12 @@ class ServerManager: ObservableObject {
     var onLogUpdate: (([String]) -> Void)?
 
     init() {
+        let managementSecret = RuntimeManagementSecret.generate()
+        self.managementSecret = managementSecret
+        quotaStore = QuotaStore(client: CLIProxyManagementClient(
+            baseURL: URL(string: "http://127.0.0.1:\(ProxyPorts.backend)")!,
+            managementSecret: managementSecret
+        ))
         logBuffer = RingBuffer(capacity: maxLogLines)
         if let saved = UserDefaults.standard.dictionary(forKey: "enabledProviders") as? [String: Bool] {
             enabledProviders = saved
@@ -244,6 +252,9 @@ class ServerManager: ObservableObject {
         process = Process()
         process?.executableURL = URL(fileURLWithPath: bundledPath)
         process?.arguments = ["-config", configPath]
+        var environment = ProcessInfo.processInfo.environment
+        environment["MANAGEMENT_PASSWORD"] = managementSecret
+        process?.environment = environment
         
         // Setup pipes for output
         let outputPipe = Pipe()
@@ -409,7 +420,6 @@ class ServerManager: ObservableObject {
                 let data = handle.availableData
                 if let str = String(data: data, encoding: .utf8), !str.isEmpty {
                     capture.text += str
-                    NSLog("[Auth] Copilot output: %@", str)
                 }
             }
         }
@@ -451,7 +461,7 @@ class ServerManager: ObservableObject {
                 if authProcess.isRunning {
                     if let data = "\(email)\n".data(using: .utf8) {
                         try? inputPipe.fileHandleForWriting.write(contentsOf: data)
-                        NSLog("[Auth] Sent Qwen email: %@", email)
+                        NSLog("[Auth] Submitted Qwen account email")
                     }
                 }
             }
@@ -473,7 +483,7 @@ class ServerManager: ObservableObject {
         }
         
         do {
-            NSLog("[Auth] Starting process: %@ with args: %@", bundledPath, authProcess.arguments?.joined(separator: " ") ?? "none")
+            NSLog("[Auth] Starting authentication process")
             activeAuthProcess = authProcess
             try authProcess.run()
             addLog("✓ Authentication process started (PID: \(authProcess.processIdentifier)) - browser should open shortly")
@@ -529,7 +539,7 @@ class ServerManager: ObservableObject {
                     if output.isEmpty { output = capture.text }
                     let error = String(data: errorData, encoding: .utf8) ?? ""
                     
-                    NSLog("[Auth] Process died quickly - output: %@", output.isEmpty ? "(empty)" : String(output.prefix(200)))
+                    NSLog("[Auth] Authentication process exited before completing")
                     
                     if output.contains("Opening browser") || output.contains("Attempting to open URL") {
                         // Browser opened but process finished (probably success)
@@ -545,7 +555,7 @@ class ServerManager: ObservableObject {
             }
         } catch {
             clearActiveAuthProcess(authProcess)
-            NSLog("[Auth] Failed to start: %@", error.localizedDescription)
+            NSLog("[Auth] Failed to start authentication process")
             completion(false, "Failed to start auth process: \(error.localizedDescription)")
         }
     }
@@ -1048,16 +1058,16 @@ class ServerManager: ObservableObject {
     
     private func loadZaiAPIKeys() -> [String] {
         let loadResult = zaiAPIKeyStore.loadActiveAPIKeys()
-        for issue in loadResult.issues {
-            NSLog("[ServerManager] Ignoring Z.AI API key file at %@: %@", issue.filePath.path, issue.message)
+        for _ in loadResult.issues {
+            NSLog("[ServerManager] Ignoring invalid Z.AI API key file")
         }
         return loadResult.apiKeys
     }
     
     private func loadCustomProviderCredentialRecords() -> [CustomProviderCredentialRecord] {
         let loadResult = customProviderCredentialStore.loadAll()
-        for issue in loadResult.issues {
-            NSLog("[ServerManager] Ignoring custom provider credential file at %@: %@", issue.filePath.path, issue.message)
+        for _ in loadResult.issues {
+            NSLog("[ServerManager] Ignoring invalid custom provider credential file")
         }
         return loadResult.records
     }
