@@ -24,8 +24,8 @@ struct VercelGatewayConfig {
 
 class ThinkingProxy {
     private var listener: NWListener?
-    let proxyPort: UInt16 = 8317
-    private let targetPort: UInt16 = 8318
+    let proxyPort = ProxyPorts.publicAPI
+    private let targetPort = ProxyPorts.backend
     private let targetHost = "127.0.0.1"
     private(set) var isRunning = false
     private let stateQueue = DispatchQueue(label: "io.automaze.vibeproxy.thinking-proxy-state")
