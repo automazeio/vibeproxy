@@ -54,7 +54,7 @@ class ServerManager: ObservableObject {
     private var process: Process?
     private var activeAuthProcess: Process?
     @Published private(set) var isRunning = false
-    private(set) var port = 8317
+    private(set) var port = 8318
     @Published private(set) var customProviders: [CustomProviderDefinition] = []
     @Published private(set) var customProviderCredentials: [String: [CustomProviderCredential]] = [:]
     @Published private(set) var configErrorMessage: String?
