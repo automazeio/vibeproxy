@@ -16,6 +16,9 @@ final class QuotaStore: ObservableObject {
     @Published private(set) var isRefreshing = false
     @Published private(set) var isManualRefreshCoolingDown = false
     @Published private(set) var lastUpdated: Date?
+    @Published private(set) var managementFailure: QuotaFailure?
+    /// False when the server was started without the management secret.
+    @Published var isManagementAvailable = true
 
     private let client: CLIProxyManagementClient
     private let freshnessInterval: TimeInterval
@@ -100,9 +103,14 @@ final class QuotaStore: ObservableObject {
 
     @MainActor
     func refresh(accounts: [AuthAccount], force: Bool = false) {
+        guard isManagementAvailable else { return }
         if !force {
             guard !isRefreshing else { return }
-            if let lastUpdated, now().timeIntervalSince(lastUpdated) < freshnessInterval {
+            // Rejected keys count toward the backend's lockout, so only retry when asked.
+            guard managementFailure != .managementAuthenticationFailed else { return }
+            if managementFailure == nil,
+               let lastUpdated,
+               now().timeIntervalSince(lastUpdated) < freshnessInterval {
                 return
             }
         }
@@ -117,6 +125,7 @@ final class QuotaStore: ObservableObject {
         }
         guard !references.isEmpty else {
             states = states.filter { id, _ in accounts.contains { $0.id == id } }
+            managementFailure = nil
             isRefreshing = false
             refreshTask = nil
             return
@@ -125,8 +134,9 @@ final class QuotaStore: ObservableObject {
         isRefreshing = true
         let client = client
         refreshTask = Task { @MainActor [weak self] in
-            let results = await Self.load(references: references, client: client)
+            let (results, managementFailure) = await Self.load(references: references, client: client)
             guard !Task.isCancelled, let self else { return }
+            self.managementFailure = managementFailure
             let accountIDs = Set(accounts.map(\.id))
             var nextStates = self.states.filter { accountIDs.contains($0.key) }
             for result in results {
@@ -148,6 +158,7 @@ final class QuotaStore: ObservableObject {
         refreshTask?.cancel()
         refreshTask = nil
         isRefreshing = false
+        managementFailure = nil
         let ids = Set(accounts.map(\.id))
         states = states
             .filter { ids.contains($0.key) }
@@ -194,20 +205,20 @@ final class QuotaStore: ObservableObject {
     private static func load(
         references: [QuotaAccountReference],
         client: CLIProxyManagementClient
-    ) async -> [RefreshResult] {
+    ) async -> (results: [RefreshResult], managementFailure: QuotaFailure?) {
         let authFiles: [ProxyAuthFile]
         do {
             authFiles = try await client.fetchAuthFiles()
         } catch {
             let failure = (error as? QuotaFailure) ?? .serverUnavailable
-            return references.map { RefreshResult(id: $0.id, snapshot: nil, failure: failure) }
+            return (references.map { RefreshResult(id: $0.id, snapshot: nil, failure: failure) }, failure)
         }
 
         let filesByName = Dictionary(
             authFiles.map { ($0.name, $0) },
             uniquingKeysWith: { first, _ in first }
         )
-        return await withTaskGroup(of: RefreshResult.self) { group in
+        let results = await withTaskGroup(of: RefreshResult.self) { group in
             for reference in references {
                 group.addTask {
                     guard let authFile = filesByName[reference.id] else {
@@ -232,6 +243,7 @@ final class QuotaStore: ObservableObject {
             }
             return results
         }
+        return (results, nil)
     }
 
     private struct RefreshResult: Sendable {
