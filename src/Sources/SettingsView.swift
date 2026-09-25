@@ -507,7 +507,7 @@ struct CustomProviderRow: View {
 
 struct SettingsView: View {
     @ObservedObject var serverManager: ServerManager
-    @StateObject private var authManager = AuthManager()
+    @ObservedObject var authManager: AuthManager
     @State private var launchAtLogin = false
     @State private var authenticatingService: ServiceType? = nil
     @State private var authenticatingCustomProviderID: String? = nil
