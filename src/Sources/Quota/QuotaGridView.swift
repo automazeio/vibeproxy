@@ -21,6 +21,12 @@ struct QuotaOverviewView: View {
                     if !serverIsRunning {
                         Text("Start the server to refresh quotas")
                             .foregroundColor(.secondary)
+                    } else if !store.isManagementAvailable {
+                        Label("Unavailable while the server accepts remote connections", systemImage: "exclamationmark.triangle")
+                            .foregroundColor(.orange)
+                    } else if let failure = store.managementFailure {
+                        Label(managementFailureText(failure), systemImage: "exclamationmark.triangle")
+                            .foregroundColor(.orange)
                     } else if let lastUpdated = store.lastUpdated {
                         Text("Updated \(lastUpdated.formatted(date: .omitted, time: .shortened))")
                             .foregroundColor(.secondary)
@@ -55,6 +61,7 @@ struct QuotaOverviewView: View {
                 .buttonStyle(.plain)
                 .disabled(
                     !serverIsRunning
+                        || !store.isManagementAvailable
                         || store.isRefreshing
                         || store.isManualRefreshCoolingDown
                         || accounts.isEmpty
@@ -111,6 +118,15 @@ struct QuotaOverviewView: View {
 
     private func refresh() {
         store.refreshManually(accounts: accounts)
+    }
+
+    private func managementFailureText(_ failure: QuotaFailure) -> String {
+        switch failure {
+        case .managementAuthenticationFailed:
+            return "Quota access was rejected. Restart the server to retry."
+        default:
+            return "Could not load quotas. Showing last known values."
+        }
     }
 
     private func prepareReset(_ account: AuthAccount, displayName: String) {
@@ -416,15 +432,26 @@ private struct QuotaAccountGridRow: View {
             }
             .frame(width: QuotaGridLayout.accountWidth, alignment: .leading)
 
-            QuotaCell(window: state?.snapshot?.window(.fiveHour))
-                .opacity(account.isDisabled ? 0.45 : 1)
-            QuotaCell(window: state?.snapshot?.window(.weekly))
-                .opacity(account.isDisabled ? 0.45 : 1)
-            QuotaCell(window: provider == .anthropic ? state?.snapshot?.window(.fable) : nil)
-                .opacity(account.isDisabled ? 0.45 : 1)
+            Group {
+                QuotaCell(window: state?.snapshot?.window(.fiveHour))
+                QuotaCell(window: state?.snapshot?.window(.weekly))
+                QuotaCell(window: provider == .anthropic ? state?.snapshot?.window(.fable) : nil)
+            }
+            .opacity(account.isDisabled || isStale ? 0.45 : 1)
+            .help(staleHelpText ?? "")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
+    }
+
+    /// The last refresh failed, so the values shown come from an earlier snapshot.
+    private var isStale: Bool {
+        state?.snapshot != nil && state?.failure != nil
+    }
+
+    private var staleHelpText: String? {
+        guard isStale, let fetchedAt = state?.snapshot?.fetchedAt else { return nil }
+        return "Last updated \(fetchedAt.formatted(date: .omitted, time: .shortened))"
     }
 }
 

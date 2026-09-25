@@ -265,6 +265,52 @@ final class QuotaTests: XCTestCase {
         XCTAssertEqual(store.states[account.id]?.snapshot?.resetCredits?.applicableAvailableCount, 2)
     }
 
+    @MainActor
+    func testRejectedManagementKeyKeepsLastValuesAndPausesAutomaticRefresh() async throws {
+        let authFiles = Data(#"{"files":[{"auth_index":"auth-1","name":"claude-test.json","provider":"claude"}]}"#.utf8)
+        let quotaBody = #"{"limits":[{"kind":"session","percent":25,"resets_at":null}]}"#
+        let wrapper = try JSONSerialization.data(withJSONObject: ["status_code": 200, "body": quotaBody])
+        let transport = QuotaTestTransport(responses: [
+            QuotaTestResponse(statusCode: 200, data: authFiles),
+            QuotaTestResponse(statusCode: 200, data: wrapper),
+            QuotaTestResponse(statusCode: 401, data: Data(#"{"error":"invalid management key"}"#.utf8)),
+            QuotaTestResponse(statusCode: 200, data: authFiles),
+            QuotaTestResponse(statusCode: 200, data: wrapper)
+        ])
+        let store = QuotaStore(client: testClient(transport: transport))
+        let account = AuthAccount(
+            id: "claude-test.json",
+            email: "test@example.com",
+            login: nil,
+            type: .claude,
+            expired: nil,
+            filePath: URL(fileURLWithPath: "/tmp/claude-test.json"),
+            isDisabled: false
+        )
+
+        store.refresh(accounts: [account])
+        await waitForRefresh(store)
+        XCTAssertNil(store.managementFailure)
+
+        store.refresh(accounts: [account], force: true)
+        await waitForRefresh(store)
+        XCTAssertEqual(store.managementFailure, .managementAuthenticationFailed)
+        XCTAssertEqual(store.states[account.id]?.snapshot?.window(.fiveHour)?.remainingPercent, 75)
+        XCTAssertEqual(store.states[account.id]?.failure, .managementAuthenticationFailed)
+
+        store.refresh(accounts: [account])
+        await Task.yield()
+        var requestCount = await transport.recordedRequests().count
+        XCTAssertEqual(requestCount, 3)
+
+        store.refresh(accounts: [account], force: true)
+        await waitForRefresh(store)
+        requestCount = await transport.recordedRequests().count
+        XCTAssertEqual(requestCount, 5)
+        XCTAssertNil(store.managementFailure)
+        XCTAssertNil(store.states[account.id]?.failure)
+    }
+
     private func testClient(transport: QuotaTestTransport) -> CLIProxyManagementClient {
         CLIProxyManagementClient(
             baseURL: URL(string: "http://127.0.0.1:8318")!,
