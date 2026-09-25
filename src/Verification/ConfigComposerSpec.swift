@@ -193,8 +193,10 @@ struct ConfigComposerSpec {
                 disabledCustomProviderIDs: [],
                 disabledOAuthProviderKeys: ["gemini-cli"],
                 zaiAPIKeys: [],
+                miniMaxAPIKeys: [],
                 customProviderAuthRecords: [],
-                includeManagedZAIProvider: false
+                includeManagedZAIProvider: false,
+                includeManagedMiniMaxProvider: false
             )
 
             let exclusions = dictionary(runtime["oauth-excluded-models"])
@@ -229,12 +231,14 @@ struct ConfigComposerSpec {
                 disabledCustomProviderIDs: [],
                 disabledOAuthProviderKeys: [],
                 zaiAPIKeys: ["zai-key-1"],
+                miniMaxAPIKeys: ["minimax-key-1"],
                 customProviderAuthRecords: [
                     ConfigProviderAuthRecord(providerID: "nvidia", apiKey: "inline-a", isDisabled: false),
                     ConfigProviderAuthRecord(providerID: "nvidia", apiKey: "auth-c", isDisabled: false),
                     ConfigProviderAuthRecord(providerID: "nvidia", apiKey: "auth-d", isDisabled: true)
                 ],
-                includeManagedZAIProvider: true
+                includeManagedZAIProvider: true,
+                includeManagedMiniMaxProvider: true
             )
 
             let nvidia = provider(named: "nvidia", in: runtime)
@@ -245,6 +249,10 @@ struct ConfigComposerSpec {
 
             let zai = provider(named: "zai", in: runtime)
             expectEqual(apiKeys(in: zai ?? [:]), ["zai-key-1"], "managed zai provider should be injected", recorder: recorder)
+
+            let minimax = provider(named: "minimax", in: runtime)
+            expectEqual(apiKeys(in: minimax ?? [:]), ["minimax-key-1"], "managed minimax provider should be injected", recorder: recorder)
+            expectEqual(minimax?["base-url"] as? String, "https://api.minimax.io/v1", "managed minimax provider should use the OpenAI-compatible endpoint", recorder: recorder)
         }
 
         run("composeRuntimeConfig preserves user-authored zai models and merges inline plus managed keys", recorder: recorder) {
@@ -272,8 +280,10 @@ struct ConfigComposerSpec {
                 disabledCustomProviderIDs: [],
                 disabledOAuthProviderKeys: [],
                 zaiAPIKeys: ["managed-zai", "inline-zai"],
+                miniMaxAPIKeys: [],
                 customProviderAuthRecords: [],
-                includeManagedZAIProvider: true
+                includeManagedZAIProvider: true,
+                includeManagedMiniMaxProvider: false
             )
 
             let zai = provider(named: "zai", in: runtime)
@@ -315,10 +325,12 @@ struct ConfigComposerSpec {
                 disabledCustomProviderIDs: ["nvidia"],
                 disabledOAuthProviderKeys: [],
                 zaiAPIKeys: [],
+                miniMaxAPIKeys: [],
                 customProviderAuthRecords: [
                     ConfigProviderAuthRecord(providerID: "nvidia", apiKey: "auth-a", isDisabled: false)
                 ],
-                includeManagedZAIProvider: false
+                includeManagedZAIProvider: false,
+                includeManagedMiniMaxProvider: false
             )
 
             expectNil(provider(named: "nvidia", in: runtime), "disabled custom providers should be omitted from runtime config", recorder: recorder)
@@ -355,6 +367,10 @@ struct ConfigComposerSpec {
                     ],
                     [
                         "name": "zai",
+                        "base-url": ""
+                    ],
+                    [
+                        "name": "minimax",
                         "base-url": ""
                     ]
                 ]

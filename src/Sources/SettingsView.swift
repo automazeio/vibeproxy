@@ -518,6 +518,8 @@ struct SettingsView: View {
     @State private var qwenEmail = ""
     @State private var showingZaiApiKeyPrompt = false
     @State private var zaiApiKey = ""
+    @State private var showingMiniMaxApiKeyPrompt = false
+    @State private var miniMaxApiKey = ""
     @State private var selectedCustomProvider: CustomProviderDefinition?
     @State private var customProviderApiKey = ""
     @State private var expandedRowCount = 0
@@ -735,6 +737,25 @@ struct SettingsView: View {
                         onToggleEnabled: { enabled in serverManager.setProviderEnabled("zai", enabled: enabled) },
                         onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
                     ) { EmptyView() }
+
+                    ServiceRow(
+                        serviceType: .minimax,
+                        iconName: "icon-minimax.png",
+                        iconSystemName: "sparkles",
+                        accounts: authManager.accounts(for: .minimax),
+                        isAuthenticating: authenticatingService == .minimax,
+                        helpText: "MiniMax provides OpenAI-compatible API access. Get your key at https://platform.minimax.io.",
+                        isEnabled: serverManager.isProviderEnabled("minimax"),
+                        isToggleLocked: serverManager.isProviderToggleLocked("minimax"),
+                        toggleHelpText: serverManager.providerConfigLockReason("minimax"),
+                        disabledReasonText: serverManager.providerConfigLockReason("minimax"),
+                        customTitle: nil,
+                        onConnect: { showingMiniMaxApiKeyPrompt = true },
+                        onDisconnect: { account in disconnectAccount(account) },
+                        onToggleDisabled: { account in toggleAccountDisabled(account) },
+                        onToggleEnabled: { enabled in serverManager.setProviderEnabled("minimax", enabled: enabled) },
+                        onExpandChange: { expanded in expandedRowCount += expanded ? 1 : -1 }
+                    ) { EmptyView() }
                 }
                 
                 if !serverManager.customProviders.isEmpty {
@@ -871,6 +892,32 @@ struct SettingsView: View {
             .padding(24)
             .frame(width: 400)
         }
+        .sheet(isPresented: $showingMiniMaxApiKeyPrompt) {
+            VStack(spacing: 16) {
+                Text("MiniMax API Key")
+                    .font(.headline)
+                Text("Enter your MiniMax API key from https://platform.minimax.io")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                SecureField("", text: $miniMaxApiKey)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 300)
+                HStack(spacing: 12) {
+                    Button("Cancel") {
+                        showingMiniMaxApiKeyPrompt = false
+                        miniMaxApiKey = ""
+                    }
+                    Button("Add Key") {
+                        showingMiniMaxApiKeyPrompt = false
+                        startMiniMaxAuth(apiKey: miniMaxApiKey)
+                    }
+                    .disabled(miniMaxApiKey.isEmpty)
+                    .keyboardShortcut(.defaultAction)
+                }
+            }
+            .padding(24)
+            .frame(width: 400)
+        }
         .sheet(item: $selectedCustomProvider, onDismiss: {
             customProviderApiKey = ""
         }) { provider in
@@ -971,6 +1018,9 @@ struct SettingsView: View {
         case .promptForZAIAPIKey:
             authenticatingService = nil
             return // handled separately with API key prompt
+        case .promptForMiniMaxAPIKey:
+            authenticatingService = nil
+            return // handled separately with API key prompt
         }
         
         serverManager.runAuthCommand(command) { success, output in
@@ -1014,6 +1064,8 @@ struct SettingsView: View {
             return "🌐 Browser opened for Antigravity authentication.\n\nPlease complete the login in your browser."
         case .zai:
             return "✓ Z.AI API key added successfully.\n\nYou can now use GLM models through the proxy."
+        case .minimax:
+            return "✓ MiniMax API key added successfully.\n\nYou can now use MiniMax models through the proxy."
         }
     }
     
@@ -1053,6 +1105,30 @@ struct SettingsView: View {
                 if success {
                     self.authResultSuccess = true
                     self.authResultMessage = self.successMessage(for: .zai)
+                    self.showingAuthResult = true
+                    self.authManager.checkAuthStatus()
+                } else {
+                    self.authResultSuccess = false
+                    self.authResultMessage = "Failed to save API key.\n\nDetails: \(output.isEmpty ? "Unknown error" : output)"
+                    self.showingAuthResult = true
+                }
+            }
+        }
+    }
+
+    private func startMiniMaxAuth(apiKey: String) {
+        authenticatingService = .minimax
+        NSLog("[SettingsView] Adding MiniMax API key")
+
+        serverManager.saveMiniMaxApiKey(apiKey) { success, output in
+            NSLog("[SettingsView] MiniMax key save completed - success: %d, output: %@", success, output)
+            DispatchQueue.main.async {
+                self.authenticatingService = nil
+                self.miniMaxApiKey = ""
+
+                if success {
+                    self.authResultSuccess = true
+                    self.authResultMessage = self.successMessage(for: .minimax)
                     self.showingAuthResult = true
                     self.authManager.checkAuthStatus()
                 } else {

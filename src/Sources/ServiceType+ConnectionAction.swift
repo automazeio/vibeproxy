@@ -2,6 +2,7 @@ enum ServiceConnectionAction: Equatable {
     case authCommand(AuthCommand)
     case promptForQwenEmail
     case promptForZAIAPIKey
+    case promptForMiniMaxAPIKey
 }
 
 extension ServiceType {
@@ -23,6 +24,8 @@ extension ServiceType {
             return .authCommand(.antigravityLogin)
         case .zai:
             return .promptForZAIAPIKey
+        case .minimax:
+            return .promptForMiniMaxAPIKey
         }
     }
 }

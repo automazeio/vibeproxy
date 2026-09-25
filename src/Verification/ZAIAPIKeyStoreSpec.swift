@@ -24,6 +24,26 @@ struct ZAIAPIKeyStoreSpec {
             }
         }
 
+        run("save and load active MiniMax API keys", recorder: recorder) {
+            withTemporaryDirectory(recorder: recorder) { directoryURL in
+                let store = MiniMaxAPIKeyStore(directoryURL: directoryURL)
+                let filePath = expectNoThrow(
+                    recorder: recorder,
+                    "saving a valid MiniMax API key should succeed"
+                ) {
+                    try store.save(apiKey: "minimax-1234567890abcdef")
+                }
+
+                guard let filePath else { return }
+
+                let loadResult = store.loadActiveAPIKeys()
+                expectEqual(loadResult.issues.count, 0, "valid MiniMax key files should load without issues", recorder: recorder)
+                expectEqual(loadResult.apiKeys, ["minimax-1234567890abcdef"], "saved MiniMax key should be returned as active", recorder: recorder)
+                expectEqual(filePath.lastPathComponent.hasPrefix("minimax-"), true, "MiniMax key files should use the minimax prefix", recorder: recorder)
+                expectEqual(filePermissions(at: filePath), 0o600, "MiniMax key files should be written with 0600 permissions", recorder: recorder)
+            }
+        }
+
         run("disabled Z.AI API keys are excluded from the active runtime set", recorder: recorder) {
             withTemporaryDirectory(recorder: recorder) { directoryURL in
                 let store = ZAIAPIKeyStore(directoryURL: directoryURL)

@@ -105,7 +105,8 @@ enum ConfigComposer {
                 seenProviderIDs.insert(providerID)
             }
 
-            if reservedProviderIDs.contains(providerID), providerID != ProviderCatalog.managedZAIProviderName {
+            if reservedProviderIDs.contains(providerID),
+               !ProviderCatalog.managedOpenAICompatibleProviderNames.contains(providerID) {
                 errors.append("Provider '\(providerID)' is reserved and cannot be declared under openai-compatibility.")
                 continue
             }
@@ -132,7 +133,7 @@ enum ConfigComposer {
                 }
             }
 
-            if providerID == ProviderCatalog.managedZAIProviderName {
+            if ProviderCatalog.managedOpenAICompatibleProviderNames.contains(providerID) {
                 continue
             }
 
@@ -151,9 +152,12 @@ enum ConfigComposer {
         disabledCustomProviderIDs: Set<String>,
         disabledOAuthProviderKeys: [String],
         zaiAPIKeys: [String],
+        miniMaxAPIKeys: [String],
         customProviderAuthRecords: [ConfigProviderAuthRecord],
         includeManagedZAIProvider: Bool,
-        managedZAIProviderName: String = "zai"
+        includeManagedMiniMaxProvider: Bool,
+        managedZAIProviderName: String = "zai",
+        managedMiniMaxProviderName: String = "minimax"
     ) -> [String: Any] {
         var mergedRoot = baseRoot
         
@@ -179,6 +183,7 @@ enum ConfigComposer {
         
         var mergedOpenAICompatibility: [[String: Any]] = []
         var managedZAIBaseEntry: [String: Any]?
+        var managedMiniMaxBaseEntry: [String: Any]?
         for entry in stringKeyedDictionaryArray(mergedRoot["openai-compatibility"]) {
             guard let providerName = normalizedProviderID(from: entry) else {
                 continue
@@ -188,6 +193,10 @@ enum ConfigComposer {
             sanitizedEntry["name"] = providerName
             if providerName == managedZAIProviderName {
                 managedZAIBaseEntry = sanitizedEntry
+                continue
+            }
+            if providerName == managedMiniMaxProviderName {
+                managedMiniMaxBaseEntry = sanitizedEntry
                 continue
             }
             
@@ -215,6 +224,16 @@ enum ConfigComposer {
             )
             if !apiKeyEntries(from: managedZAIEntry).isEmpty {
                 mergedOpenAICompatibility.append(managedZAIEntry)
+            }
+        }
+
+        if includeManagedMiniMaxProvider {
+            let managedMiniMaxEntry = makeMiniMaxProviderEntry(
+                baseEntry: managedMiniMaxBaseEntry,
+                apiKeys: miniMaxAPIKeys
+            )
+            if !apiKeyEntries(from: managedMiniMaxEntry).isEmpty {
+                mergedOpenAICompatibility.append(managedMiniMaxEntry)
             }
         }
         
@@ -408,6 +427,26 @@ enum ConfigComposer {
         return entry
     }
 
+    private static func makeMiniMaxProviderEntry(baseEntry: [String: Any]?, apiKeys: [String]) -> [String: Any] {
+        var entry = stripCustomProviderUIMetadata(from: baseEntry ?? [:])
+        entry["name"] = "minimax"
+
+        if normalizedString(entry["base-url"]) == nil {
+            entry["base-url"] = "https://api.minimax.io/v1"
+        }
+
+        let inlineEntries = apiKeyEntries(from: entry)
+        entry["api-key-entries"] = deduplicatedAPIKeyEntries(
+            inlineEntries + apiKeys.map { ["api-key": $0] }
+        )
+
+        if stringKeyedDictionaryArray(entry["models"]).isEmpty {
+            entry["models"] = defaultMiniMaxModels()
+        }
+
+        return entry
+    }
+
     private static func normalizedProviderID(from entry: [String: Any]) -> String? {
         normalizedString(entry["name"])
     }
@@ -430,6 +469,19 @@ enum ConfigComposer {
             ["name": "glm-4-plus", "alias": "glm-4-plus"],
             ["name": "glm-4-air", "alias": "glm-4-air"],
             ["name": "glm-4-flash", "alias": "glm-4-flash"]
+        ]
+    }
+
+    private static func defaultMiniMaxModels() -> [[String: String]] {
+        [
+            ["name": "MiniMax-M3", "alias": "MiniMax-M3"],
+            ["name": "MiniMax-M2.7", "alias": "MiniMax-M2.7"],
+            ["name": "MiniMax-M2.7-highspeed", "alias": "MiniMax-M2.7-highspeed"],
+            ["name": "MiniMax-M2.5", "alias": "MiniMax-M2.5"],
+            ["name": "MiniMax-M2.5-highspeed", "alias": "MiniMax-M2.5-highspeed"],
+            ["name": "MiniMax-M2.1", "alias": "MiniMax-M2.1"],
+            ["name": "MiniMax-M2.1-highspeed", "alias": "MiniMax-M2.1-highspeed"],
+            ["name": "MiniMax-M2", "alias": "MiniMax-M2"]
         ]
     }
 }

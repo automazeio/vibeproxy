@@ -23,6 +23,7 @@ VibeProxy manages OAuth tokens, auto-refreshes them, routes requests, and handle
 - **Google Cloud account** with Gemini API access for Gemini 2.x models (optional)
 - **GitHub Copilot** subscription for Copilot model access (optional) — gives Claude, GPT, and Gemini models via GitHub's API
 - **Z.AI API key** for GLM model access (optional) - get one at [z.ai/manage-apikey/apikey-list](https://z.ai/manage-apikey/apikey-list)
+- **MiniMax API key** for MiniMax model access (optional) - get one at [platform.minimax.io](https://platform.minimax.io)
 - Factory CLI installed: `curl -fsSL https://app.factory.ai/cli | sh`
 
 ## Step 1: Install VibeProxy
@@ -62,6 +63,10 @@ Once VibeProxy is running:
 8. **(Optional)** Click **"Add Account"** next to Z.AI GLM
    - Enter your Z.AI API key (get one at [z.ai/manage-apikey/apikey-list](https://z.ai/manage-apikey/apikey-list))
    - This provides access to **GLM-5**, **GLM-4.7**, and other GLM models
+   - VibeProxy will securely store your API key
+9. **(Optional)** Click **"Add Account"** next to MiniMax
+   - Enter your MiniMax API key (get one at [platform.minimax.io](https://platform.minimax.io))
+   - This provides access to **MiniMax-M3**, **MiniMax-M2.7**, **MiniMax-M2.5**, and other MiniMax models
    - VibeProxy will securely store your API key
 
 ✅ The server starts automatically and runs on port **8317**
@@ -442,6 +447,19 @@ Antigravity provides access to Claude models with a generous usage quota (shared
 
 > [!NOTE]
 > Z.AI GLM models require an API key instead of OAuth authentication. Get your API key at [z.ai/manage-apikey/apikey-list](https://z.ai/manage-apikey/apikey-list) and add it in VibeProxy Settings → Z.AI GLM → Add Account.
+
+### MiniMax Models
+- `MiniMax-M3` - Latest MiniMax text model
+- `MiniMax-M2.7` - MiniMax M2.7 text model
+- `MiniMax-M2.7-highspeed` - Faster MiniMax M2.7 variant
+- `MiniMax-M2.5` - MiniMax M2.5 text model
+- `MiniMax-M2.5-highspeed` - Faster MiniMax M2.5 variant
+- `MiniMax-M2.1` - MiniMax M2.1 text model
+- `MiniMax-M2.1-highspeed` - Faster MiniMax M2.1 variant
+- `MiniMax-M2` - MiniMax M2 text model
+
+> [!NOTE]
+> MiniMax models require an API key instead of OAuth authentication. Get your API key at [platform.minimax.io](https://platform.minimax.io) and add it in VibeProxy Settings → MiniMax → Add Account.
 
 ### OpenAI Models
 
