@@ -253,7 +253,17 @@ class ServerManager: ObservableObject {
         process?.executableURL = URL(fileURLWithPath: bundledPath)
         process?.arguments = ["-config", configPath]
         var environment = ProcessInfo.processInfo.environment
-        environment["MANAGEMENT_PASSWORD"] = managementSecret
+        let isManagementAvailable: Bool
+        if case .success(let root) = loadYAMLDictionary(atPath: configPath) {
+            isManagementAvailable = ConfigComposer.bindsToLoopback(root)
+        } else {
+            isManagementAvailable = false
+        }
+        if isManagementAvailable {
+            environment["MANAGEMENT_PASSWORD"] = managementSecret
+        } else {
+            addLog("⚠️ Usage limits are unavailable because the server is not bound to localhost")
+        }
         process?.environment = environment
         
         // Setup pipes for output
@@ -294,6 +304,7 @@ class ServerManager: ObservableObject {
         do {
             try process?.run()
             DispatchQueue.main.async {
+                self.quotaStore.isManagementAvailable = isManagementAvailable
                 self.isRunning = true
                 self.activeConfigPath = configPath
             }

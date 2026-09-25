@@ -18,6 +18,15 @@ final class ConfigComposerTests: XCTestCase {
         XCTAssertEqual(result["port"] as? Int, 8318)
     }
 
+    func testManagementSecretIsLimitedToLoopbackHosts() {
+        XCTAssertTrue(ConfigComposer.bindsToLoopback(["host": "127.0.0.1"]))
+        XCTAssertTrue(ConfigComposer.bindsToLoopback(["host": "::1"]))
+        XCTAssertTrue(ConfigComposer.bindsToLoopback(["host": "localhost"]))
+        XCTAssertFalse(ConfigComposer.bindsToLoopback(["host": "0.0.0.0"]))
+        XCTAssertFalse(ConfigComposer.bindsToLoopback(["host": ""]))
+        XCTAssertFalse(ConfigComposer.bindsToLoopback([:]))
+    }
+
     func testDoesNotOverwriteExplicitTopLevelAPIKeys() {
         let root: [String: Any] = ["api-keys": ["configured-key"]]
         let runtimeRoot: [String: Any] = ["api-keys": ["runtime-key"]]
