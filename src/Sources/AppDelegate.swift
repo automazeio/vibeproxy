@@ -40,6 +40,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
         serverManager.onVercelConfigChanged = { [weak self] in
             self?.syncVercelConfig()
         }
+
+        // Apply the persisted proxy bind mode and rebind on changes (#475)
+        syncProxyBindMode()
+        serverManager.onProxyLANAccessChanged = { [weak self] in
+            self?.syncProxyBindMode()
+            self?.thinkingProxy.restartListener()
+        }
         
         // Warm commonly used icons to avoid first-use disk hits
         preloadIcons()
@@ -516,6 +523,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
             enabled: serverManager.vercelGatewayEnabled,
             apiKey: serverManager.vercelApiKey
         )
+    }
+
+    // MARK: - Proxy Bind Mode Sync (#475)
+
+    /// Applies the persisted LAN-access preference to the thinking proxy.
+    private func syncProxyBindMode() {
+        thinkingProxy.allowsLANConnections = serverManager.proxyLANAccessEnabled
     }
 
     // MARK: - UNUserNotificationCenterDelegate

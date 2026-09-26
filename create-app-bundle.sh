@@ -185,8 +185,16 @@ if [ -n "$CODESIGN_IDENTITY" ]; then
         echo -e "${GREEN}✅ Sparkle.framework signed${NC}"
     fi
     
-    # Sign the main executable with hardened runtime
-    codesign --force --sign "$CODESIGN_IDENTITY" --options runtime --timestamp "$APP_DIR/Contents/MacOS/CLIProxyMenuBar"
+    # Sign the main executable with hardened runtime and entitlements (#528),
+    # matching the cli-proxy-api-plus signing above so the binary carries a
+    # well-formed entitlements record.
+    if [ -f "$PROJECT_DIR/entitlements.plist" ]; then
+        codesign --force --sign "$CODESIGN_IDENTITY" --options runtime --timestamp \
+            --entitlements "$PROJECT_DIR/entitlements.plist" \
+            "$APP_DIR/Contents/MacOS/CLIProxyMenuBar"
+    else
+        codesign --force --sign "$CODESIGN_IDENTITY" --options runtime --timestamp "$APP_DIR/Contents/MacOS/CLIProxyMenuBar"
+    fi
     
     # Then sign the entire app bundle
     codesign --force --sign "$CODESIGN_IDENTITY" --options runtime --timestamp "$APP_DIR"

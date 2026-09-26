@@ -81,6 +81,17 @@ class ServerManager: ObservableObject {
     }
     var onVercelConfigChanged: (() -> Void)?
 
+    /// ThinkingProxy bind mode (#475). Off = loopback-only (the secure default, matching
+    /// the backend's 127.0.0.1 bind). On = bind all interfaces so LAN/NAS clients can reach
+    /// the proxy (#75). Persisted across upgrades.
+    @Published var proxyLANAccessEnabled: Bool = false {
+        didSet {
+            UserDefaults.standard.set(proxyLANAccessEnabled, forKey: "proxyLANAccessEnabled")
+            onProxyLANAccessChanged?()
+        }
+    }
+    var onProxyLANAccessChanged: (() -> Void)?
+
     /// Helper class to capture output text across closures
     private class OutputCapture {
         var text = ""
@@ -139,6 +150,7 @@ class ServerManager: ObservableObject {
         }
         vercelGatewayEnabled = UserDefaults.standard.bool(forKey: "vercelGatewayEnabled")
         vercelApiKey = UserDefaults.standard.string(forKey: "vercelApiKey") ?? ""
+        proxyLANAccessEnabled = UserDefaults.standard.bool(forKey: "proxyLANAccessEnabled")
         reloadCustomProviders()
         markObservedConfigInputsCurrent()
     }

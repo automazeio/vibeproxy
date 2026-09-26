@@ -31,6 +31,14 @@ class ThinkingProxy {
     private let stateQueue = DispatchQueue(label: "io.automaze.vibeproxy.thinking-proxy-state")
 
     var vercelConfig = VercelGatewayConfig(enabled: false, apiKey: "")
+
+    /// Bind mode (#475). Off (default): the listener binds IPv4 loopback only, matching
+    /// the backend's 127.0.0.1 bind on 8318. On: binds all interfaces, preserving the
+    /// documented LAN/NAS workflow (#75).
+    var allowsLANConnections = false
+
+    /// Pending listener rebind scheduled by `restartListener()`; cancelled by `stop()`.
+    private var pendingRestart: DispatchWorkItem?
     
     private enum Config {
         static let hardTokenCap = 32000
@@ -41,6 +49,19 @@ class ThinkingProxy {
     }
     
     /**
+     Builds listener parameters that bind IPv4 loopback only, so the proxy is never
+     reachable from the network (#475). The CLIProxyAPI backend on port 8318 binds
+     127.0.0.1 as well, keeping both listeners consistent.
+     */
+    static func loopbackListenerParameters(port: UInt16) -> NWParameters? {
+        guard let port = NWEndpoint.Port(rawValue: port) else { return nil }
+        let parameters = NWParameters.tcp
+        parameters.allowLocalEndpointReuse = true
+        parameters.requiredLocalEndpoint = NWEndpoint.hostPort(host: "127.0.0.1", port: port)
+        return parameters
+    }
+
+    /**
      Starts the thinking proxy server on port 8317
      */
     func start() {
@@ -50,14 +71,24 @@ class ThinkingProxy {
         }
         
         do {
-            let parameters = NWParameters.tcp
-            parameters.allowLocalEndpointReuse = true
-            
             guard let port = NWEndpoint.Port(rawValue: proxyPort) else {
                 NSLog("[ThinkingProxy] Invalid port: %d", proxyPort)
                 return
             }
-            listener = try NWListener(using: parameters, on: port)
+            
+            if allowsLANConnections {
+                // Explicit opt-in: preserve the historic wildcard bind for LAN/NAS use (#75).
+                let parameters = NWParameters.tcp
+                parameters.allowLocalEndpointReuse = true
+                listener = try NWListener(using: parameters, on: port)
+            } else {
+                // Secure default: bind IPv4 loopback only, matching the backend on 8318 (#475).
+                guard let parameters = ThinkingProxy.loopbackListenerParameters(port: proxyPort) else {
+                    NSLog("[ThinkingProxy] Invalid port: %d", proxyPort)
+                    return
+                }
+                listener = try NWListener(using: parameters)
+            }
             
             listener?.stateUpdateHandler = { [weak self] state in
                 switch state {
@@ -65,7 +96,10 @@ class ThinkingProxy {
                     DispatchQueue.main.async {
                         self?.isRunning = true
                     }
-                    NSLog("[ThinkingProxy] Listening on port \(self?.proxyPort ?? 0)")
+                    let bindMode = self?.allowsLANConnections == true
+                        ? "all interfaces (LAN access enabled)"
+                        : "loopback only"
+                    NSLog("[ThinkingProxy] Listening on port \(self?.proxyPort ?? 0) - bind: \(bindMode)")
                 case .failed(let error):
                     NSLog("[ThinkingProxy] Failed: \(error)")
                     DispatchQueue.main.async {
@@ -97,6 +131,9 @@ class ThinkingProxy {
      */
     func stop() {
         stateQueue.sync {
+            pendingRestart?.cancel()
+            pendingRestart = nil
+            
             guard isRunning else { return }
             
             listener?.cancel()
@@ -106,6 +143,26 @@ class ThinkingProxy {
             }
             NSLog("[ThinkingProxy] Stopped")
         }
+    }
+    
+    /**
+     Re-binds the listener so a change to `allowsLANConnections` takes effect
+     immediately (#475). The short delay lets the cancelled listener tear down
+     before the new bind; `stop()` cancels the pending rebind if the proxy is
+     being shut down in the meantime.
+     */
+    func restartListener() {
+        guard isRunning else { return }
+        stop()
+        
+        let restart = DispatchWorkItem { [weak self] in
+            self?.start()
+        }
+        stateQueue.sync {
+            pendingRestart?.cancel()
+            pendingRestart = restart
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: restart)
     }
     
     /**
