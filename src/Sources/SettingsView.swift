@@ -572,6 +572,15 @@ struct SettingsView: View {
                             toggleLaunchAtLogin(newValue)
                         }
 
+                    Toggle("Allow LAN connections (port 8317)", isOn: $serverManager.proxyLANAccessEnabled)
+                        .help("Off by default: the proxy accepts connections from this Mac only (127.0.0.1). Turn on to let other devices on your local network use the proxy.")
+
+                    if serverManager.proxyLANAccessEnabled {
+                        Text("The proxy is reachable from your local network. Any device on it can use your logged-in provider accounts through this proxy.")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                    }
+
                     HStack {
                         Text("Auth files")
                         Spacer()
