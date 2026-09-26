@@ -59,6 +59,12 @@ class ServerManager: ObservableObject {
     @Published private(set) var customProviderCredentials: [String: [CustomProviderCredential]] = [:]
     @Published private(set) var configErrorMessage: String?
 
+    /// CLI flags defined by the bundled backend, parsed from its --help output
+    /// (#351, #457, #396). nil until the one-shot probe completes (or for good if
+    /// the probe fails); login flows treat nil as "unknown" and keep legacy behavior.
+    @Published private(set) var backendCapabilities: BackendCapabilities?
+    private let backendCapabilityQueue = DispatchQueue(label: "io.automaze.vibeproxy.backend-capabilities", qos: .utility)
+
     /// Provider enabled states - when disabled, models are excluded via oauth-excluded-models
     @Published var enabledProviders: [String: Bool] = [:] {
         didSet {
@@ -153,6 +159,7 @@ class ServerManager: ObservableObject {
         proxyLANAccessEnabled = UserDefaults.standard.bool(forKey: "proxyLANAccessEnabled")
         reloadCustomProviders()
         markObservedConfigInputsCurrent()
+        detectBackendCapabilities()
     }
 
     /// Check if a provider is enabled (defaults to true if not set)
@@ -360,7 +367,62 @@ class ServerManager: ObservableObject {
         }
     }
     
+    /// Probes the bundled backend's --help once and publishes the parsed flag set.
+    /// Never blocks the main thread; a failed probe leaves `backendCapabilities`
+    /// nil (unknown -> legacy behavior).
+    private func detectBackendCapabilities() {
+        guard let resourcePath = Bundle.main.resourcePath else { return }
+        let bundledPath = (resourcePath as NSString).appendingPathComponent("cli-proxy-api-plus")
+        guard FileManager.default.fileExists(atPath: bundledPath) else { return }
+
+        backendCapabilityQueue.async { [weak self] in
+            let probe = Process()
+            probe.executableURL = URL(fileURLWithPath: bundledPath)
+            probe.arguments = ["--help"]
+            let stdout = Pipe()
+            let stderr = Pipe()
+            probe.standardOutput = stdout
+            probe.standardError = stderr
+
+            do {
+                try probe.run()
+                // --help returns immediately; the deadline is pure defense.
+                let deadline = Date().addingTimeInterval(10)
+                while probe.isRunning && Date() < deadline {
+                    Thread.sleep(forTimeInterval: 0.05)
+                }
+                guard !probe.isRunning else {
+                    probe.terminate()
+                    return
+                }
+                let outText = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                let errText = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                let capabilities = BackendCapabilities(helpOutput: outText + "\n" + errText)
+                guard !capabilities.definedFlags.isEmpty else { return }
+                DispatchQueue.main.async {
+                    self?.backendCapabilities = capabilities
+                }
+            } catch {
+                NSLog("[ServerManager] Backend capability probe failed")
+            }
+        }
+    }
+
     func runAuthCommand(_ command: AuthCommand, completion: @escaping (Bool, String) -> Void) {
+        // Capability gate: a backend that doesn't define the command's login flag
+        // dies with "flag provided but not defined" (#351, #457, #396). Until the
+        // probe completes, fall back to the legacy behavior.
+        if let capabilities = backendCapabilities,
+           !capabilities.defines(flag: command.requiredBackendFlag) {
+            completion(
+                false,
+                "\(command.displayName) login is not available with the bundled CLIProxyAPI backend: "
+                    + "it does not provide the '-\(command.requiredBackendFlag)' command.\n\n"
+                    + "Adding an account requires a backend build that includes this login flow."
+            )
+            return
+        }
+
         terminateActiveAuthProcessIfNeeded(reason: "starting a new auth attempt")
         cleanupStaleAuthProcesses()
 
@@ -386,24 +448,14 @@ class ServerManager: ObservableObject {
         }
         
         var qwenEmail: String?
-        
-        switch command {
-        case .claudeLogin:
-            authProcess.arguments = ["--config", configPath, "-claude-login"]
-        case .codexLogin:
-            authProcess.arguments = ["--config", configPath, "-codex-login"]
-        case .copilotLogin:
-            authProcess.arguments = ["--config", configPath, "-github-copilot-login"]
-        case .geminiLogin:
-            authProcess.arguments = ["--config", configPath, "-login"]
-        case .kimiLogin:
-            authProcess.arguments = ["--config", configPath, "-kimi-login"]
-        case .qwenLogin(let email):
-            authProcess.arguments = ["--config", configPath, "-qwen-login"]
+        if case .qwenLogin(let email) = command {
             qwenEmail = email
-        case .antigravityLogin:
-            authProcess.arguments = ["--config", configPath, "-antigravity-login"]
         }
+        
+        // Single source of truth for login flags: arguments are built from
+        // AuthCommand.requiredBackendFlag, which CI verifies against the
+        // bundled backend's --help (scripts/check-backend-flag-parity.sh).
+        authProcess.arguments = ["--config", configPath, "-\(command.requiredBackendFlag)"]
         
         // Create pipes for output
         let outputPipe = Pipe()
@@ -910,46 +962,45 @@ class ServerManager: ObservableObject {
         return logBuffer.elements()
     }
     
-    /// Kill any orphaned cli-proxy-api-plus processes that might be running
+    /// Kill any orphaned cli-proxy-api-plus processes that might be running.
+    /// `--help` capability probes (see `detectBackendCapabilities`) are spared so
+    /// the launch-time probe isn't collateral damage of this cleanup.
     private func killOrphanedProcesses() {
-        // First check if any processes exist using pgrep
+        let probePIDs = Set(pids(matching: "cli-proxy-api-plus --help"))
+        let orphanPIDs = pids(matching: "cli-proxy-api-plus").filter { !probePIDs.contains($0) }
+        guard !orphanPIDs.isEmpty else { return }
+
+        addLog("⚠️ Found orphaned server process(es): \(orphanPIDs.map(String.init).joined(separator: ", "))")
+        for pid in orphanPIDs {
+            kill(pid, SIGKILL)
+        }
+
+        // Wait a moment for cleanup
+        Thread.sleep(forTimeInterval: 0.5)
+        addLog("✓ Cleaned up orphaned processes")
+    }
+
+    /// PIDs of processes whose full command line matches the pattern (empty when none match).
+    private func pids(matching pattern: String) -> [Int32] {
         let checkTask = Process()
         checkTask.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
-        checkTask.arguments = ["-f", "cli-proxy-api-plus"]
-        
+        checkTask.arguments = ["-f", pattern]
+
         let outputPipe = Pipe()
         checkTask.standardOutput = outputPipe
         checkTask.standardError = Pipe() // Suppress errors
-        
+
         do {
             try checkTask.run()
             checkTask.waitUntilExit()
-            
-            // If pgrep found processes (exit code 0), kill them
-            if checkTask.terminationStatus == 0 {
-                let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-                let output = String(data: data, encoding: .utf8) ?? ""
-                let pids = output.components(separatedBy: .newlines).filter { !$0.isEmpty }
-                
-                if !pids.isEmpty {
-                    addLog("⚠️ Found orphaned server process(es): \(pids.joined(separator: ", "))")
-                    
-                    // Now kill them
-                    let killTask = Process()
-                    killTask.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-                    killTask.arguments = ["-9", "-f", "cli-proxy-api-plus"]
-                    
-                    try killTask.run()
-                    killTask.waitUntilExit()
-                    
-                    // Wait a moment for cleanup
-                    Thread.sleep(forTimeInterval: 0.5)
-                    addLog("✓ Cleaned up orphaned processes")
-                }
-            }
-            // Exit code 1 means no processes found - this is fine, no need to log
+            // Exit code 1 means no processes found - this is fine
+            guard checkTask.terminationStatus == 0 else { return [] }
+            let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: data, encoding: .utf8) ?? ""
+            return output.components(separatedBy: .newlines).compactMap { Int32($0) }
         } catch {
             // Silently fail - this is not critical
+            return []
         }
     }
     
@@ -1249,4 +1300,49 @@ enum AuthCommand: Equatable {
     case kimiLogin
     case qwenLogin(email: String)
     case antigravityLogin
+}
+
+extension AuthCommand {
+    /// The CLI login flag this command requires the bundled backend to define.
+    /// Kept as the single source of truth: runAuthCommand builds its arguments
+    /// from this value, and scripts/check-backend-flag-parity.sh verifies it in
+    /// CI against the backend's --help output.
+    var requiredBackendFlag: String {
+        switch self {
+        case .claudeLogin:
+            return "claude-login"
+        case .codexLogin:
+            return "codex-login"
+        case .copilotLogin:
+            return "github-copilot-login"
+        case .geminiLogin:
+            return "login"
+        case .kimiLogin:
+            return "kimi-login"
+        case .qwenLogin:
+            return "qwen-login"
+        case .antigravityLogin:
+            return "antigravity-login"
+        }
+    }
+
+    /// Human-readable name used in capability-gate messages.
+    var displayName: String {
+        switch self {
+        case .claudeLogin:
+            return "Claude"
+        case .codexLogin:
+            return "Codex"
+        case .copilotLogin:
+            return "GitHub Copilot"
+        case .geminiLogin:
+            return "Gemini"
+        case .kimiLogin:
+            return "Kimi"
+        case .qwenLogin:
+            return "Qwen"
+        case .antigravityLogin:
+            return "Antigravity"
+        }
+    }
 }
