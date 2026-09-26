@@ -1,0 +1,50 @@
+name: Backend Flag Parity
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '0 6 * * *'  # Daily drift check: releases bundle the latest upstream binary.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  flag-parity:
+    name: Verify login flags against CLIProxyAPI
+    runs-on: macos-14
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download latest CLIProxyAPI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          LATEST_TAG=$(gh release view --repo router-for-me/CLIProxyAPI --json tagName -q '.tagName')
+          echo "Latest CLIProxyAPI: $LATEST_TAG"
+          RELEASE_JSON=$(gh api "repos/router-for-me/CLIProxyAPI/releases/tags/$LATEST_TAG")
+          ASSET_REGEX="^CLIProxyAPI_.+_darwin_(aarch64|arm64)\\.tar\\.gz$"
+          FILENAME=$(echo "$RELEASE_JSON" | jq -r --arg regex "$ASSET_REGEX" '.assets[] | select(.name | test($regex)) | .name' | head -n 1)
+          if [ -z "$FILENAME" ] || [ "$FILENAME" = "null" ]; then
+            echo "Error: could not resolve a darwin arm64 asset for $LATEST_TAG" >&2
+            exit 1
+          fi
+          curl -L -f --retry 3 --retry-delay 5 -o cliproxy.tar.gz "https://github.com/router-for-me/CLIProxyAPI/releases/download/$LATEST_TAG/$FILENAME"
+          TEMP_DIR=$(mktemp -d)
+          tar -xzf cliproxy.tar.gz -C "$TEMP_DIR"
+          BINARY=$(find "$TEMP_DIR" -type f \( -name "CLIProxyAPI" -o -name "cli-proxy-api" -o -name "cli-proxy-api-plus" \) | head -1)
+          if [ -z "$BINARY" ]; then
+            echo "Error: no binary found in tarball" >&2
+            exit 1
+          fi
+          echo "BINARY=$BINARY" >> "$GITHUB_ENV"
+
+      - name: Check app login flags against backend
+        run: |
+          chmod +x scripts/check-backend-flag-parity.sh
+          ./scripts/check-backend-flag-parity.sh "$BINARY"
