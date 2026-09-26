@@ -962,46 +962,45 @@ class ServerManager: ObservableObject {
         return logBuffer.elements()
     }
     
-    /// Kill any orphaned cli-proxy-api-plus processes that might be running
+    /// Kill any orphaned cli-proxy-api-plus processes that might be running.
+    /// `--help` capability probes (see `detectBackendCapabilities`) are spared so
+    /// the launch-time probe isn't collateral damage of this cleanup.
     private func killOrphanedProcesses() {
-        // First check if any processes exist using pgrep
+        let probePIDs = Set(pids(matching: "cli-proxy-api-plus --help"))
+        let orphanPIDs = pids(matching: "cli-proxy-api-plus").filter { !probePIDs.contains($0) }
+        guard !orphanPIDs.isEmpty else { return }
+
+        addLog("⚠️ Found orphaned server process(es): \(orphanPIDs.map(String.init).joined(separator: ", "))")
+        for pid in orphanPIDs {
+            kill(pid, SIGKILL)
+        }
+
+        // Wait a moment for cleanup
+        Thread.sleep(forTimeInterval: 0.5)
+        addLog("✓ Cleaned up orphaned processes")
+    }
+
+    /// PIDs of processes whose full command line matches the pattern (empty when none match).
+    private func pids(matching pattern: String) -> [Int32] {
         let checkTask = Process()
         checkTask.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
-        checkTask.arguments = ["-f", "cli-proxy-api-plus"]
-        
+        checkTask.arguments = ["-f", pattern]
+
         let outputPipe = Pipe()
         checkTask.standardOutput = outputPipe
         checkTask.standardError = Pipe() // Suppress errors
-        
+
         do {
             try checkTask.run()
             checkTask.waitUntilExit()
-            
-            // If pgrep found processes (exit code 0), kill them
-            if checkTask.terminationStatus == 0 {
-                let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-                let output = String(data: data, encoding: .utf8) ?? ""
-                let pids = output.components(separatedBy: .newlines).filter { !$0.isEmpty }
-                
-                if !pids.isEmpty {
-                    addLog("⚠️ Found orphaned server process(es): \(pids.joined(separator: ", "))")
-                    
-                    // Now kill them
-                    let killTask = Process()
-                    killTask.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-                    killTask.arguments = ["-9", "-f", "cli-proxy-api-plus"]
-                    
-                    try killTask.run()
-                    killTask.waitUntilExit()
-                    
-                    // Wait a moment for cleanup
-                    Thread.sleep(forTimeInterval: 0.5)
-                    addLog("✓ Cleaned up orphaned processes")
-                }
-            }
-            // Exit code 1 means no processes found - this is fine, no need to log
+            // Exit code 1 means no processes found - this is fine
+            guard checkTask.terminationStatus == 0 else { return [] }
+            let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: data, encoding: .utf8) ?? ""
+            return output.components(separatedBy: .newlines).compactMap { Int32($0) }
         } catch {
             // Silently fail - this is not critical
+            return []
         }
     }
     

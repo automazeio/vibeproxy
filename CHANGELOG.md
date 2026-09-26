@@ -4,6 +4,31 @@ All notable changes to VibeProxy will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Proxy binds loopback-only by default** — port 8317 now listens on 127.0.0.1
+  (matching the backend on 8318) instead of every interface. LAN access is
+  preserved behind the new "Allow LAN connections" setting (#475, #565)
+- **Main executable is signed with entitlements** — the empty entitlements
+  record broke the Accessibility (TCC) request, so the menu bar icon never
+  appeared (#528, #565)
+- **Copilot / Gemini / Qwen connect buttons** — the app now detects which
+  login flows the bundled CLIProxyAPI supports and explains unsupported ones
+  instead of failing with a raw "flag provided but not defined" error
+  (#351, #457, #396, #566)
+- **Login flags verified in CI** — a new parity check fails the build when the
+  app sends a login flag the backend doesn't define, so upstream flag drift
+  can't silently break a login button (#566)
+- Orphan cleanup no longer kills the launch-time capability probe (#566)
+
+### Added
+- "Allow LAN connections (port 8317)" setting with a network-exposure warning
+  and bind-mode diagnostics in the proxy log (#475, #565)
+- Swift test suite now runs on every pull request and push (#564)
+- Less sensitive data (file paths, account emails, process arguments) in
+  Console logs (#564)
+
 ## [1.8.50] - 2026-01-13
 
 ## [1.8.312] - 2026-09-26
