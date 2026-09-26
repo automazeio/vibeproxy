@@ -125,6 +125,17 @@ After saving the file, VibeProxy regenerates its runtime configuration and appli
 
 ## Development
 
+### Tests
+
+Run the complete Swift test suite from the repository root:
+
+```bash
+make test
+```
+
+Pull requests run the same suite on macOS through GitHub Actions.
+Local test runs require a full Xcode toolchain because Command Line Tools alone do not include XCTest.
+
 ### Project Structure
 
 ```
