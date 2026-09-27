@@ -6,6 +6,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.8.313] - 2026-09-27
+
+### Updated
+- **CLIProxyAPI 7.3.19** - Latest upstream release (#568)
+  - Various upstream improvements and stability enhancements
+
+
 ### Fixed
 - **Proxy binds loopback-only by default** — port 8317 now listens on 127.0.0.1
   (matching the backend on 8318) instead of every interface. LAN access is
@@ -2623,6 +2630,7 @@ All future changes will be documented here before release.
 
 ---
 
+[1.8.313]: https://github.com/automazeio/vibeproxy/releases/tag/v1.8.313
 [1.8.312]: https://github.com/automazeio/vibeproxy/releases/tag/v1.8.312
 [1.8.311]: https://github.com/automazeio/vibeproxy/releases/tag/v1.8.311
 [1.8.310]: https://github.com/automazeio/vibeproxy/releases/tag/v1.8.310
