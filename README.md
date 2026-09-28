@@ -13,7 +13,7 @@
 
 **Stop paying twice for AI.** VibeProxy is a beautiful native macOS menu bar app that lets you use your existing Claude Code, ChatGPT, **Gemini**, **Kimi**, **Qwen**, **Antigravity**, and **Z.AI GLM** subscriptions with powerful AI coding tools like **[Factory Droids](https://app.factory.ai/r/FM8BJHFQ)**.
 
-Built on [CLIProxyAPIPlus](https://github.com/router-for-me/CLIProxyAPIPlus), it handles OAuth authentication, token management, and API routing automatically. One click to authenticate, zero friction to code.
+Built on [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI), it handles OAuth authentication, token management, and API routing automatically. One click to authenticate, zero friction to code.
 
 
 <p align="center">
@@ -95,7 +95,7 @@ When you click "Add Account" for Z.AI GLM:
 
 ### Advanced Configuration
 
-VibeProxy supports persistent [CLIProxyAPIPlus](https://github.com/router-for-me/CLIProxyAPIPlus) overrides in:
+VibeProxy supports persistent [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) overrides in:
 
 ```text
 ~/.cli-proxy-api/config.yaml
@@ -118,6 +118,33 @@ payload:
 `default` only supplies the value when the client does not already send one. Use `override` instead if the proxy should always enforce the configured value. Supported verbosity values are `low`, `medium`, and `high`.
 
 After saving the file, VibeProxy regenerates its runtime configuration and applies the change without an application restart.
+
+### Codex Configuration
+
+Codex reads its configuration from `~/.codex/config.toml`. VibeProxy exposes an OpenAI-compatible endpoint, so there are two ways to point Codex at it.
+
+**Simple override** - replace the default endpoint:
+
+```toml
+base_url = "http://127.0.0.1:8317/v1"
+```
+
+**Explicit provider** - add a named provider and select it:
+
+```toml
+model_provider = "cliproxyapi"
+
+[model_providers.cliproxyapi]
+name = "cliproxyapi"
+base_url = "http://127.0.0.1:8317/v1"
+wire_api = "responses"
+```
+
+Both route Codex agent traffic through VibeProxy, and both work for normal Codex use. They differ in one respect we know about today: Codex's native ChatGPT surfaces (Quick Chat, "More details", and Computer history) use the ChatGPT account path, and with the explicit provider block those surfaces consistently fail or become unavailable, while the simple override leaves them working. If you rely on those features, prefer the simple override.
+
+This is reported and still under investigation in [#544](https://github.com/automazeio/vibeproxy/issues/544), so treat it as an observed difference rather than an explained one. We don't yet have log evidence showing whether a failing Quick Chat request reaches the proxy on port 8317 at all. Note that [CLIProxyAPI's own documentation](https://github.com/router-for-me/CLIProxyAPI) recommends the explicit provider shape; if you follow it and lose Quick Chat, this is why.
+
+Port 8317 is bound to `127.0.0.1` only by default. If you enable LAN access in Settings, substitute this machine's LAN IP for `127.0.0.1`.
 
 ## Requirements
 
@@ -149,8 +176,8 @@ VibeProxy/
 │   └── Resources/
 │       ├── AppIcon.iconset     # App icon
 │       ├── AppIcon.icns        # App icon
-│       ├── cli-proxy-api-plus  # CLIProxyAPIPlus binary
-│       ├── config.yaml         # CLIProxyAPIPlus config
+│       ├── cli-proxy-api-plus  # CLIProxyAPI binary
+│       ├── config.yaml         # CLIProxyAPI config
 │       ├── icon-active.png     # Menu bar icon (active)
 │       ├── icon-inactive.png   # Menu bar icon (inactive)
 │       ├── icon-claude.png     # Claude Code service icon
@@ -175,9 +202,11 @@ VibeProxy/
 
 ## Credits
 
-VibeProxy is built on top of [CLIProxyAPIPlus](https://github.com/router-for-me/CLIProxyAPIPlus), an excellent unified proxy server for AI services with support for third-party providers.
+VibeProxy is built on top of [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI), an excellent unified proxy server for AI services with support for third-party providers.
 
-Special thanks to the CLIProxyAPIPlus project for providing the core functionality that makes VibeProxy possible.
+Special thanks to the CLIProxyAPI project for providing the core functionality that makes VibeProxy possible.
+
+Earlier releases were built on the now-retired `CLIProxyAPIPlus` fork, which is where the bundled `cli-proxy-api-plus` binary name comes from. Current builds bundle upstream CLIProxyAPI and update to its latest release automatically.
 
 ## License
 
