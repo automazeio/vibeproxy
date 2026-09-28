@@ -119,6 +119,33 @@ payload:
 
 After saving the file, VibeProxy regenerates its runtime configuration and applies the change without an application restart.
 
+### Codex Configuration
+
+Codex reads its configuration from `~/.codex/config.toml`. VibeProxy exposes an OpenAI-compatible endpoint, so there are two ways to point Codex at it.
+
+**Simple override** - replace the default endpoint:
+
+```toml
+base_url = "http://127.0.0.1:8317/v1"
+```
+
+**Explicit provider** - add a named provider and select it:
+
+```toml
+model_provider = "cliproxyapi"
+
+[model_providers.cliproxyapi]
+name = "cliproxyapi"
+base_url = "http://127.0.0.1:8317/v1"
+wire_api = "responses"
+```
+
+Both route Codex agent traffic through VibeProxy, and both work for normal Codex use. They differ in one respect we know about today: Codex's native ChatGPT surfaces (Quick Chat, "More details", and Computer history) use the ChatGPT account path, and with the explicit provider block those surfaces consistently fail or become unavailable, while the simple override leaves them working. If you rely on those features, prefer the simple override.
+
+This is reported and still under investigation in [#544](https://github.com/automazeio/vibeproxy/issues/544), so treat it as an observed difference rather than an explained one. We don't yet have log evidence showing whether a failing Quick Chat request reaches the proxy on port 8317 at all. Note that [CLIProxyAPI's own documentation](https://github.com/router-for-me/CLIProxyAPI) recommends the explicit provider shape; if you follow it and lose Quick Chat, this is why.
+
+Port 8317 is bound to `127.0.0.1` only by default. If you enable LAN access in Settings, substitute this machine's LAN IP for `127.0.0.1`.
+
 ## Requirements
 
 - macOS 13.0 (Ventura) or later
