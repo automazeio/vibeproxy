@@ -6,6 +6,17 @@
     <description>Most recent updates to VibeProxy</description>
     <language>en</language>
     <item>
+      <title>Version 1.8.319</title>
+      <sparkle:version>1214</sparkle:version>
+      <sparkle:shortVersionString>1.8.319</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <pubDate>Thu, 01 Oct 2026 12:13:48 +0000</pubDate>
+      <enclosure url="https://github.com/automazeio/vibeproxy/releases/download/v1.8.319/VibeProxy-arm64.zip"
+                 type="application/octet-stream"
+                 sparkle:edSignature="+him5dQ5zqh88OKB9yJ0sg4jNQ+v6FeJgdU0x8oC5GlzYz0JIojKhc7OpKD1XZ4dJopOYYR740ikz2l1Z7PwDA=="
+                 length="25846921"/>
+    </item>
+    <item>
       <title>Version 1.8.318</title>
       <sparkle:version>1211</sparkle:version>
       <sparkle:shortVersionString>1.8.318</sparkle:shortVersionString>
