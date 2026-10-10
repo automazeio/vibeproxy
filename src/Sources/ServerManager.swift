@@ -54,10 +54,12 @@ class ServerManager: ObservableObject {
     private var process: Process?
     private var activeAuthProcess: Process?
     @Published private(set) var isRunning = false
-    private(set) var port = 8318
+    private(set) var port = ProxyPorts.backend
     @Published private(set) var customProviders: [CustomProviderDefinition] = []
     @Published private(set) var customProviderCredentials: [String: [CustomProviderCredential]] = [:]
     @Published private(set) var configErrorMessage: String?
+    let quotaStore: QuotaStore
+    private let managementSecret: String
 
     /// CLI flags defined by the bundled backend, parsed from its --help output
     /// (#351, #457, #396). nil until the one-shot probe completes (or for good if
@@ -150,6 +152,12 @@ class ServerManager: ObservableObject {
     var onLogUpdate: (([String]) -> Void)?
 
     init() {
+        let managementSecret = RuntimeManagementSecret.generate()
+        self.managementSecret = managementSecret
+        quotaStore = QuotaStore(client: CLIProxyManagementClient(
+            baseURL: URL(string: "http://127.0.0.1:\(ProxyPorts.backend)")!,
+            managementSecret: managementSecret
+        ))
         logBuffer = RingBuffer(capacity: maxLogLines)
         if let saved = UserDefaults.standard.dictionary(forKey: "enabledProviders") as? [String: Bool] {
             enabledProviders = saved
@@ -263,6 +271,19 @@ class ServerManager: ObservableObject {
         process = Process()
         process?.executableURL = URL(fileURLWithPath: bundledPath)
         process?.arguments = ["-config", configPath]
+        var environment = ProcessInfo.processInfo.environment
+        let isManagementAvailable: Bool
+        if case .success(let root) = loadYAMLDictionary(atPath: configPath) {
+            isManagementAvailable = ConfigComposer.bindsToLoopback(root)
+        } else {
+            isManagementAvailable = false
+        }
+        if isManagementAvailable {
+            environment["MANAGEMENT_PASSWORD"] = managementSecret
+        } else {
+            addLog("⚠️ Usage limits are unavailable because the server is not bound to localhost")
+        }
+        process?.environment = environment
         
         // Setup pipes for output
         let outputPipe = Pipe()
@@ -302,6 +323,7 @@ class ServerManager: ObservableObject {
         do {
             try process?.run()
             DispatchQueue.main.async {
+                self.quotaStore.isManagementAvailable = isManagementAvailable
                 self.isRunning = true
                 self.activeConfigPath = configPath
             }
