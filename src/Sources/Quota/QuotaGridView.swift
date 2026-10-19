@@ -433,9 +433,13 @@ private struct QuotaAccountGridRow: View {
             .frame(width: QuotaGridLayout.accountWidth, alignment: .leading)
 
             Group {
-                QuotaCell(window: state?.snapshot?.window(.fiveHour))
-                QuotaCell(window: state?.snapshot?.window(.weekly))
-                QuotaCell(window: provider == .anthropic ? state?.snapshot?.window(.fable) : nil)
+                if let spend = state?.snapshot?.window(.spend) {
+                    SpendCell(window: spend)
+                } else {
+                    QuotaCell(window: state?.snapshot?.window(.fiveHour))
+                    QuotaCell(window: state?.snapshot?.window(.weekly))
+                    QuotaCell(window: provider == .anthropic ? state?.snapshot?.window(.fable) : nil)
+                }
             }
             .opacity(account.isDisabled || isStale ? 0.45 : 1)
             .help(staleHelpText ?? "")
@@ -567,6 +571,30 @@ private struct QuotaCell: View {
     private func resetText(_ date: Date?) -> String {
         guard let date else { return "no reset" }
         return QuotaTimeFormatter.compact(until: date)
+    }
+}
+
+/// Spans the three window columns for plans limited by spend rather than time windows.
+private struct SpendCell: View {
+    let window: QuotaWindow
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text("\(Int(window.remainingPercent.rounded()))%")
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .foregroundColor(QuotaColor.color(for: window.remainingPercent))
+            Text(caption)
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+        }
+        .frame(width: QuotaGridLayout.cellWidth * 3 + QuotaGridLayout.spacing * 2, height: 24)
+        .help("Remaining spend limit set by the workspace")
+    }
+
+    private var caption: String {
+        guard let resetsAt = window.resetsAt else { return "spend limit" }
+        return "spend limit · \(QuotaTimeFormatter.compact(until: resetsAt))"
     }
 }
 

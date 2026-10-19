@@ -55,6 +55,27 @@ final class QuotaTests: XCTestCase {
         XCTAssertEqual(snapshot.resetCredits, CodexResetAvailability(availableCount: 2, applicableAvailableCount: 1))
     }
 
+    func testCodexUsesSpendLimitWhenPlanHasNoWindows() throws {
+        let data = Data(#"""
+        {"rate_limit":null,"spend_control":{"reached":false,"individual_limit":{"unit":"usd","limit":"500.00","used":"10.00","used_percent":2,"reset_at":1900000000}},"rate_limit_reset_credits":{"available_count":3,"applicable_available_count":0}}
+        """#.utf8)
+
+        let snapshot = try CodexQuotaDecoder.decode(data, fetchedAt: Date())
+
+        XCTAssertEqual(snapshot.windows, [
+            QuotaWindow(kind: .spend, usedPercent: 2, resetsAt: Date(timeIntervalSince1970: 1_900_000_000))
+        ])
+        XCTAssertEqual(snapshot.resetCredits, CodexResetAvailability(availableCount: 3, applicableAvailableCount: 0))
+    }
+
+    func testCodexWithoutWindowsOrSpendLimitIsInvalid() {
+        let data = Data(#"{"rate_limit":null,"spend_control":{"individual_limit":null}}"#.utf8)
+
+        XCTAssertThrowsError(try CodexQuotaDecoder.decode(data, fetchedAt: Date())) { error in
+            XCTAssertEqual(error as? QuotaFailure, .invalidResponse)
+        }
+    }
+
     func testStringIDTokenDoesNotPoisonAuthInventory() async throws {
         let transport = QuotaTestTransport(responses: [
             QuotaTestResponse(statusCode: 200, data: Data(#"""

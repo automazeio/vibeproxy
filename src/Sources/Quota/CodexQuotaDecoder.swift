@@ -2,14 +2,19 @@ import Foundation
 
 enum CodexQuotaDecoder {
     static func decode(_ data: Data, fetchedAt: Date) throws -> QuotaSnapshot {
-        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let rateLimit = root["rate_limit"] as? [String: Any] else {
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw QuotaFailure.invalidResponse
         }
 
         var windows: [QuotaWindow] = []
-        appendWindow(key: "primary_window", fallbackKind: .fiveHour, from: rateLimit, to: &windows)
-        appendWindow(key: "secondary_window", fallbackKind: .weekly, from: rateLimit, to: &windows)
+        if let rateLimit = root["rate_limit"] as? [String: Any] {
+            appendWindow(key: "primary_window", fallbackKind: .fiveHour, from: rateLimit, to: &windows)
+            appendWindow(key: "secondary_window", fallbackKind: .weekly, from: rateLimit, to: &windows)
+        }
+        // Enterprise plans have no time windows; a per-user spend limit applies instead.
+        if windows.isEmpty, let spend = spendWindow(from: root) {
+            windows.append(spend)
+        }
 
         guard !windows.isEmpty else {
             throw QuotaFailure.invalidResponse
@@ -43,6 +48,19 @@ enum CodexQuotaDecoder {
             usedPercent: usedPercent,
             resetsAt: QuotaDateParser.epoch(value["reset_at"] ?? value["resets_at"])
         ))
+    }
+
+    private static func spendWindow(from root: [String: Any]) -> QuotaWindow? {
+        guard let spendControl = root["spend_control"] as? [String: Any],
+              let limit = spendControl["individual_limit"] as? [String: Any],
+              let usedPercent = QuotaDateParser.number(limit["used_percent"]) else {
+            return nil
+        }
+        return QuotaWindow(
+            kind: .spend,
+            usedPercent: usedPercent,
+            resetsAt: QuotaDateParser.epoch(limit["reset_at"])
+        )
     }
 
     private static func windowKind(duration: Double?, fallback: QuotaWindowKind) -> QuotaWindowKind {
