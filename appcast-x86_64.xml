@@ -6,6 +6,17 @@
     <description>Most recent updates to VibeProxy for Intel Macs</description>
     <language>en</language>
     <item>
+      <title>Version 1.8.342</title>
+      <sparkle:version>1282</sparkle:version>
+      <sparkle:shortVersionString>1.8.342</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <pubDate>Thu, 22 Oct 2026 00:14:15 +0000</pubDate>
+      <enclosure url="https://github.com/automazeio/vibeproxy/releases/download/v1.8.342/VibeProxy-x86_64.zip"
+                 type="application/octet-stream"
+                 sparkle:edSignature="0rlWUXj0+pvPNDHExGmuCKLnfxVG6N8O51B1eM5DoZZ4UwGN2exMaap/YPl/cX9qd/yU1lhWUv8Cv1HxVXQ9Dw=="
+                 length="29116526"/>
+    </item>
+    <item>
       <title>Version 1.8.341</title>
       <sparkle:version>1279</sparkle:version>
       <sparkle:shortVersionString>1.8.341</sparkle:shortVersionString>
