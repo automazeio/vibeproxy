@@ -261,6 +261,56 @@ final class ConfigComposerTests: XCTestCase {
         XCTAssertNil(provider(named: "nvidia", in: runtime))
     }
 
+    func testRuntimeConfigForcesBackendPortOverFlatPortKey() {
+        // A legacy/example config.yaml using the flat `port` key (as VibeProxy's
+        // own bundled default does) must not leave the backend listening
+        // anywhere but the fixed port ThinkingProxy forwards to (#601).
+        let baseRoot: [String: Any] = ["port": 9999]
+
+        let runtime = ConfigComposer.composeRuntimeConfig(
+            baseRoot: baseRoot,
+            reservedCustomProviderKeys: ProviderCatalog.reservedCustomProviderKeys,
+            disabledCustomProviderIDs: [],
+            disabledOAuthProviderKeys: [],
+            zaiAPIKeys: [],
+            customProviderAuthRecords: [],
+            includeManagedZAIProvider: false,
+            requiredBackendPort: 8318
+        )
+
+        XCTAssertNil(runtime["port"])
+        XCTAssertEqual(dictionary(runtime["server"])["port"] as? Int, 8318)
+    }
+
+    func testRuntimeConfigForcesBackendPortOverUserServerPortOverride() {
+        // This is the exact shape that caused #601: a user config.yaml (e.g.
+        // one carried over from a pre-ThinkingProxy VibeProxy setup) declares
+        // `server.port` as the same port ThinkingProxy itself listens on
+        // (8317), which makes the backend's own HTTP server fail to bind and
+        // the app stop ThinkingProxy too. The merged runtime config must
+        // always win with the backend's real required port, regardless of
+        // what a nested `server.port` override says, while preserving other
+        // keys already in that section (e.g. `callback_port`).
+        let baseRoot: [String: Any] = [
+            "server": ["port": 8317, "callback_port": 1455]
+        ]
+
+        let runtime = ConfigComposer.composeRuntimeConfig(
+            baseRoot: baseRoot,
+            reservedCustomProviderKeys: ProviderCatalog.reservedCustomProviderKeys,
+            disabledCustomProviderIDs: [],
+            disabledOAuthProviderKeys: [],
+            zaiAPIKeys: [],
+            customProviderAuthRecords: [],
+            includeManagedZAIProvider: false,
+            requiredBackendPort: 8318
+        )
+        let server = dictionary(runtime["server"])
+
+        XCTAssertEqual(server["port"] as? Int, 8318)
+        XCTAssertEqual(server["callback_port"] as? Int, 1455)
+    }
+
     func testOAuthWildcardExclusionDetection() {
         let root: [String: Any] = [
             "oauth-excluded-models": [

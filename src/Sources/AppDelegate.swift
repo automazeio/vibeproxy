@@ -390,6 +390,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
         pendingAuthRefresh?.cancel()
         authFileMonitor?.cancel()
         authFileMonitor = nil
+        userConfigFileMonitor?.cancel()
+        userConfigFileMonitor = nil
+        configInputPoller?.cancel()
+        configInputPoller = nil
         // Final cleanup - stop server if still running
         if serverManager.isRunning {
             thinkingProxy.stop()

@@ -931,7 +931,8 @@ class ServerManager: ObservableObject {
                 baseConfigRoot: baseConfig.root,
                 enabledProviderStates: enabledProviderStates
             ),
-            managedZAIProviderName: ProviderCatalog.managedZAIProviderName
+            managedZAIProviderName: ProviderCatalog.managedZAIProviderName,
+            requiredBackendPort: port
         )
         
         let mergedConfigPath = authDir.appendingPathComponent(CustomProviderConstants.mergedConfigFilename)
