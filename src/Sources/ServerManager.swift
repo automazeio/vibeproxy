@@ -109,6 +109,7 @@ class ServerManager: ObservableObject {
     private let configInputStateQueue = DispatchQueue(label: "io.automaze.vibeproxy.config-input-state", qos: .userInitiated)
     private let configResolutionQueue = DispatchQueue(label: "io.automaze.vibeproxy.config-resolution", qos: .userInitiated)
     private lazy var zaiAPIKeyStore = ZAIAPIKeyStore(directoryURL: authDirectoryURL())
+    private lazy var claudeSetupTokenStore = ClaudeSetupTokenStore(authDirectory: authDirectoryURL())
     private lazy var customProviderCredentialStore = CustomProviderCredentialStore(directoryURL: authDirectoryURL())
     private var activeConfigPath = ""
     private var isRestartingForConfigUpdate = false
@@ -717,6 +718,26 @@ class ServerManager: ObservableObject {
         }
     }
     
+    /// Imports a Claude Code setup token to the auth directory without starting browser/email sign-in.
+    func saveClaudeSetupToken(label: String, setupToken: String, completion: @escaping (Bool, String) -> Void) {
+        credentialMutationQueue.async { [weak self] in
+            guard let self else { return }
+
+            do {
+                let filePath = try self.claudeSetupTokenStore.save(label: label, setupToken: setupToken)
+                self.addLog("✓ Claude Code setup token imported as \(filePath.lastPathComponent)")
+                self.refreshAuthBackedConfiguration()
+                DispatchQueue.main.async {
+                    completion(true, "Setup token imported successfully")
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    completion(false, error.localizedDescription)
+                }
+            }
+        }
+    }
+
     func saveCustomProviderAPIKey(providerID: String, apiKey: String, completion: @escaping (Bool, String) -> Void) {
         credentialMutationQueue.async { [weak self] in
             guard let self else { return }

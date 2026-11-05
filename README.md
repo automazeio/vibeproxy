@@ -87,6 +87,13 @@ When you click "Add Account" for Z.AI GLM:
 2. VibeProxy stores it in `~/.cli-proxy-api/`
 3. The provider becomes available through the proxy immediately
 
+When you click "Add Setup Token" for Claude Code:
+1. Paste a Claude Code setup token that starts with `sk-ant-oat01-` and choose a local account label
+2. VibeProxy stores it in `~/.cli-proxy-api/` as a Claude credential file with owner-only permissions
+3. The account appears by label in Settings and is picked up by the proxy like other Claude auth files
+
+Setup-token import is a local convenience for existing Claude Code credentials. It does not open email sign-in, verify the account during import, refresh the token automatically, or bypass Anthropic/organization restrictions; send a Claude request after importing to confirm the backend accepts that account.
+
 ### Server Management
 
 - **Toggle Server**: Click the status (Running/Stopped) to start/stop

@@ -123,6 +123,8 @@ struct ServiceRow<ExtraContent: View>: View {
     let disabledReasonText: String?
     let customTitle: String?
     let onConnect: () -> Void
+    var secondaryConnectTitle: String? = nil
+    var onSecondaryConnect: (() -> Void)? = nil
     let onDisconnect: (AuthAccount) -> Void
     let onToggleDisabled: (AuthAccount) -> Void
     let onToggleEnabled: (Bool) -> Void
@@ -175,6 +177,13 @@ struct ServiceRow<ExtraContent: View>: View {
                     ProgressView()
                         .controlSize(.small)
                 } else if isEnabled {
+                    if let secondaryConnectTitle, let onSecondaryConnect {
+                        Button(secondaryConnectTitle) {
+                            onSecondaryConnect()
+                        }
+                        .controlSize(.small)
+                        .help("Add a Claude Code setup token instead of opening the browser login flow")
+                    }
                     Button("Add Account") {
                         onConnect()
                     }
@@ -518,6 +527,9 @@ struct SettingsView: View {
     @State private var qwenEmail = ""
     @State private var showingZaiApiKeyPrompt = false
     @State private var zaiApiKey = ""
+    @State private var showingClaudeSetupTokenPrompt = false
+    @State private var claudeSetupTokenLabel = ""
+    @State private var claudeSetupToken = ""
     @State private var selectedCustomProvider: CustomProviderDefinition?
     @State private var customProviderApiKey = ""
     @State private var expandedRowCount = 0
@@ -623,6 +635,12 @@ struct SettingsView: View {
                         disabledReasonText: serverManager.providerConfigLockReason("claude"),
                         customTitle: serverManager.vercelGatewayEnabled && !serverManager.vercelApiKey.isEmpty ? "Claude Code (via Vercel)" : nil,
                         onConnect: { connectService(.claude) },
+                        secondaryConnectTitle: "Add Setup Token",
+                        onSecondaryConnect: {
+                            claudeSetupTokenLabel = ""
+                            claudeSetupToken = ""
+                            showingClaudeSetupTokenPrompt = true
+                        },
                         onDisconnect: { account in disconnectAccount(account) },
                         onToggleDisabled: { account in toggleAccountDisabled(account) },
                         onToggleEnabled: { enabled in serverManager.setProviderEnabled("claude", enabled: enabled) },
@@ -854,6 +872,7 @@ struct SettingsView: View {
             .padding(24)
             .frame(width: 350)
         }
+
         .sheet(isPresented: $showingZaiApiKeyPrompt) {
             VStack(spacing: 16) {
                 Text("Z.AI API Key")
@@ -879,6 +898,44 @@ struct SettingsView: View {
             }
             .padding(24)
             .frame(width: 400)
+        }
+        .sheet(isPresented: $showingClaudeSetupTokenPrompt, onDismiss: {
+            claudeSetupTokenLabel = ""
+            claudeSetupToken = ""
+        }) {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Import Claude Code setup token")
+                    .font(.headline)
+                Text("Paste a Claude Code long-term setup token. VibeProxy stores it in ~/.cli-proxy-api/ with your label; this does not open email sign-in, verify the account, refresh the token, or bypass Anthropic organization restrictions.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                TextField("Account label", text: $claudeSetupTokenLabel)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 360)
+
+                SecureField("sk-ant-oat01-…", text: $claudeSetupToken)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 360)
+
+                HStack(spacing: 12) {
+                    Spacer()
+                    Button("Cancel") {
+                        showingClaudeSetupTokenPrompt = false
+                        claudeSetupTokenLabel = ""
+                        claudeSetupToken = ""
+                    }
+                    Button("Import Token") {
+                        showingClaudeSetupTokenPrompt = false
+                        startClaudeSetupTokenImport(label: claudeSetupTokenLabel, setupToken: claudeSetupToken)
+                    }
+                    .disabled(claudeSetupTokenLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || claudeSetupToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .keyboardShortcut(.defaultAction)
+                }
+            }
+            .padding(24)
+            .frame(width: 420)
         }
         .sheet(item: $selectedCustomProvider, onDismiss: {
             customProviderApiKey = ""
@@ -1073,6 +1130,31 @@ struct SettingsView: View {
         }
     }
     
+    private func startClaudeSetupTokenImport(label: String, setupToken: String) {
+        authenticatingService = .claude
+        NSLog("[SettingsView] Importing Claude Code setup token")
+
+        serverManager.saveClaudeSetupToken(label: label, setupToken: setupToken) { success, output in
+            NSLog("[SettingsView] Claude setup token import completed - success: %d", success)
+            DispatchQueue.main.async {
+                self.authenticatingService = nil
+                self.claudeSetupTokenLabel = ""
+                self.claudeSetupToken = ""
+
+                if success {
+                    self.authResultSuccess = true
+                    self.authResultMessage = "✓ Claude Code setup token imported.\n\nIt is saved locally with your label. Try a Claude request to confirm the account is accepted by Anthropic/CLIProxyAPI; imported setup tokens do not refresh automatically."
+                    self.showingAuthResult = true
+                    self.authManager.checkAuthStatus()
+                } else {
+                    self.authResultSuccess = false
+                    self.authResultMessage = "Failed to import Claude Code setup token.\n\nDetails: \(output.isEmpty ? "Unknown error" : output)"
+                    self.showingAuthResult = true
+                }
+            }
+        }
+    }
+
     private func startCustomProviderAuth(provider: CustomProviderDefinition, apiKey: String) {
         authenticatingCustomProviderID = provider.id
         NSLog("[SettingsView] Adding custom provider API key")

@@ -29,6 +29,7 @@ struct AuthAccount: Identifiable, Equatable {
     let id: String  // filename
     let email: String?
     let login: String?  // for Copilot
+    let label: String?  // for setup-token/imported accounts
     let type: ServiceType
     let expired: Date?
     let filePath: URL
@@ -45,6 +46,9 @@ struct AuthAccount: Identifiable, Equatable {
         }
         if let login = login, !login.isEmpty {
             return login
+        }
+        if let label = label, !label.isEmpty {
+            return label
         }
         return id
     }
@@ -115,6 +119,7 @@ class AuthManager: ObservableObject {
                 
                 let email = json["email"] as? String
                 let login = json["login"] as? String
+                let label = json["label"] as? String
                 var expiredDate: Date?
                 
                 if let expiredStr = json["expired"] as? String {
@@ -132,6 +137,7 @@ class AuthManager: ObservableObject {
                     id: file.lastPathComponent,
                     email: email,
                     login: login,
+                    label: label,
                     type: serviceType,
                     expired: expiredDate,
                     filePath: file,
