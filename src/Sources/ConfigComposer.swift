@@ -33,7 +33,14 @@ enum ConfigComposer {
         }
         return mergedRoot
     }
-    
+
+    /// Whether the backend accepts connections only from this machine.
+    /// The runtime management secret also allows remote access, so it is only safe on loopback.
+    static func bindsToLoopback(_ root: [String: Any]) -> Bool {
+        guard let host = root["host"] as? String else { return false }
+        return ["127.0.0.1", "::1", "localhost"].contains(host.trimmingCharacters(in: .whitespaces).lowercased())
+    }
+
     static func parseCustomProviders(
         from root: [String: Any],
         reservedProviderIDs: Set<String>
