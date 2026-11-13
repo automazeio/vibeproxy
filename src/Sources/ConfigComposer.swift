@@ -153,10 +153,28 @@ enum ConfigComposer {
         zaiAPIKeys: [String],
         customProviderAuthRecords: [ConfigProviderAuthRecord],
         includeManagedZAIProvider: Bool,
-        managedZAIProviderName: String = "zai"
+        managedZAIProviderName: String = "zai",
+        requiredBackendPort: Int = 8318
     ) -> [String: Any] {
         var mergedRoot = baseRoot
-        
+
+        // ThinkingProxy always listens on 127.0.0.1:8317 and forwards to the
+        // backend on `requiredBackendPort` (8318). A user's own config.yaml
+        // (e.g. one written for a pre-ThinkingProxy VibeProxy setup, or one
+        // that copies an upstream CLIProxyAPI example) can declare a `port`
+        // or `server.port` that collides with ThinkingProxy's own listener.
+        // When that happens the backend's HTTP server fails to bind,
+        // `ServerManager.start` reports failure, and the app stops
+        // ThinkingProxy too (#601) — surfacing as "the server starts, then
+        // immediately stops" with no indication the real cause was a port
+        // clash. The backend's own listen port is an internal implementation
+        // detail of this fixed two-port architecture, not something a user
+        // config should be able to override, so it's forced here.
+        mergedRoot.removeValue(forKey: "port")
+        var serverSection = mergedRoot["server"].flatMap(stringKeyedDictionary) ?? [:]
+        serverSection["port"] = requiredBackendPort
+        mergedRoot["server"] = serverSection
+
         let oauthExcludedModels = buildOAuthExcludedModels(
             from: mergedRoot["oauth-excluded-models"],
             disabledOAuthProviderKeys: disabledOAuthProviderKeys
