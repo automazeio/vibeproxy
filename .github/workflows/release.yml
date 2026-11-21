@@ -32,7 +32,7 @@ jobs:
   build-signed:
     name: Build and Sign macOS App (${{ matrix.arch }})
     needs: get-cliproxy-version
-    runs-on: macos-14  # macOS Sonoma on Apple Silicon (M1)
+    runs-on: macos-15  # macOS Sequoia on Apple Silicon
     strategy:
       matrix:
         include:
@@ -50,11 +50,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Set up Swift
-        uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: "5.9"
 
       - name: Import Code Signing Certificates
         uses: apple-actions/import-codesign-certs@v2
@@ -287,7 +282,7 @@ jobs:
   release:
     name: Create Release
     needs: [get-cliproxy-version, build-signed]
-    runs-on: macos-14
+    runs-on: macos-15
     if: startsWith(github.ref, 'refs/tags/')
 
     steps:
